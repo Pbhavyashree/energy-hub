@@ -43,7 +43,7 @@ fun perKWh(perMWh: Number): Number = round((perMWh / 1000) * 100000) / 100000
  * start returning 15 without warning. Computing it means that day is a
  * non-event instead of an outage.
  */
-fun intervalMinutes(entry: Object): Number =
+fun intervalMinutes(entry) =
   (entry.end_timestamp - entry.start_timestamp) / 60000
 
 /**
