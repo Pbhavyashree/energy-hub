@@ -2,3 +2,4 @@ target/
 secrets.yaml
 *.secret.properties
 .DS_Store
+target/

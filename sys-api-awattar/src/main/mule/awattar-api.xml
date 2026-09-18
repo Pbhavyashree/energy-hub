@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core
+        http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http
+        http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+    <!--
+      Deliberately minimal: no APIkit, no error handler, no config file.
+      The only goal of this file is to prove the toolchain end to end -
+      Maven resolves, the app deploys, the DataWeave module loads from
+      src/main/resources/modules, and a real upstream call maps correctly.
+
+      Once `curl localhost:8092/api/sys/awattar/v1/marketdata` returns
+      canonical points, add the APIkit router and the error handling.
+    -->
+
+    <http:listener-config name="awattar-httpListener">
+        <http:listener-connection host="0.0.0.0" port="8092"/>
+    </http:listener-config>
+
+    <http:request-config name="awattar-upstream">
+        <http:request-connection protocol="HTTPS"
+                                host="api.awattar.de"
+                                port="443"/>
+    </http:request-config>
+
+    <flow name="get-marketdata-flow">
+        <http:listener config-ref="awattar-httpListener"
+                       path="/api/sys/awattar/v1/marketdata"/>
+
+        <logger level="INFO"
+                message="#['Fetching aWATTar market data, corr=' ++ (correlationId default '-')]"/>
+
+        <http:request config-ref="awattar-upstream"
+                      method="GET"
+                      path="/v1/marketdata"
+                      responseTimeout="10000">
+            <!--
+              Pass through from/to when the caller supplied them; aWATTar
+              expects epoch milliseconds. Omitting both gives its rolling
+              24-hour window from the current hour.
+            -->
+            <http:query-params><![CDATA[#[
+                {} ++
+                (if (attributes.queryParams.from != null)
+                   {start: (attributes.queryParams.from as DateTime) as Number {unit: "milliseconds"}}
+                 else {}) ++
+                (if (attributes.queryParams.to != null)
+                   {end: (attributes.queryParams.to as DateTime) as Number {unit: "milliseconds"}}
+                 else {})
+            ]]]></http:query-params>
+        </http:request>
+
+        <!--
+          No ee:transform - that component is Enterprise only. Inline
+          DataWeave importing the module is the CE-compatible equivalent,
+          and it is the same module the playground validated.
+        -->
+        <set-payload value="#[%dw 2.0
+            import toCanonical from modules::AwattarMapper
+            output application/json
+            ---
+            toCanonical(payload)]"/>
+
+        <logger level="INFO"
+                message="#['Mapped ' ++ sizeOf(payload) ++ ' price points']"/>
+    </flow>
+
+</mule>
