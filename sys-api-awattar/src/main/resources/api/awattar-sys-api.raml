@@ -1,0 +1,70 @@
+#%RAML 1.0
+title: aWATTar System API
+version: v1
+description: |
+  Thin wrapper over the aWATTar market data API (api.awattar.de/v1/marketdata).
+  Same day-ahead auction ENTSO-E publishes, delivered as JSON with no auth.
+
+  Its only job is to speak aWATTar's dialect so nothing else has to: epoch
+  milliseconds in, canonical UTC datetimes out; Eur/MWh in, both per-MWh and
+  per-kWh out.
+
+  Deliberately absent: caching, merging with other sources, business rules.
+
+  Upstream quirks this API normalises away, verified against live responses:
+    - Timestamps are epoch MILLISECONDS (13 digits), not seconds.
+    - The `end` parameter filters on an interval's END, so passing 23:59 for
+      a full day silently drops the 23:00-00:00 interval and returns 23
+      points. This API takes exclusive `to` and forwards it unchanged, so
+      callers pass the following midnight.
+    - With no parameters the upstream returns a rolling 24-hour window from
+      the current hour, NOT a calendar day.
+    - A range with no cleared auction returns 200 with an empty data array,
+      not a 404.
+
+baseUri: http://{host}:{port}/api/sys/awattar/{version}
+baseUriParameters:
+  host:
+    default: localhost
+  port:
+    default: "8092"
+mediaType: application/json
+
+uses:
+  energy: ../../../../../../exp-api/src/main/resources/api/library/energy-types.raml
+
+traits:
+  correlated:
+    headers:
+      X-Correlation-Id?: string
+
+/marketdata:
+  get:
+    is: [correlated]
+    displayName: Get day-ahead prices for a time range
+    description: |
+      Returns an empty array when the auction for the requested range has not
+      cleared. That is a valid state, not an error - the process layer decides
+      whether to treat it as degraded.
+    queryParameters:
+      from:
+        type: datetime
+        required: false
+        description: |
+          Inclusive lower bound. Omit both bounds to get the upstream's
+          rolling 24-hour window from the current hour.
+      to:
+        type: datetime
+        required: false
+        description: |
+          Exclusive upper bound. For a full delivery day pass the FOLLOWING
+          midnight, not 23:59 - see the quirk note above.
+    responses:
+      200:
+        body:
+          type: energy.PricePoint[]
+          examples:
+            fullDay: !include ../../../test/resources/samples/awattar-canonical-example.json
+      502:
+        description: Upstream unreachable, or returned a unit this API does not recognise.
+        body: energy.ApiError
