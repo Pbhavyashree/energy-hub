@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.json text eol=lf
+*.dwl text eol=lf
+*.raml text eol=lf

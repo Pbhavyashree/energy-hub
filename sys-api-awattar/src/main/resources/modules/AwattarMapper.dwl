@@ -1,4 +1,5 @@
 %dw 2.0
+import fail from dw::Runtime
 
 /**
  * aWATTar market data -> canonical PricePoint[].
@@ -50,11 +51,11 @@ fun intervalMinutes(entry: Object): Number =
  * silent unit change becomes a 1000x pricing error, so anything unexpected
  * is surfaced for the caller to turn into a 502.
  */
-fun unexpectedUnits(doc: Object): Array<String> =
+fun unexpectedUnits(doc) =
   ((doc.data default []) map ($.unit default "MISSING")
     filter ($ != "Eur/MWh")) distinctBy $
 
-fun toCanonical(doc: Object): Array<Object> =
+fun toCanonical(doc) =
   ((doc.data default []) map ((entry) -> {
     startsAt: epochMillisToUtc(entry.start_timestamp),
     endsAt: epochMillisToUtc(entry.end_timestamp),
@@ -70,7 +71,7 @@ fun toCanonical(doc: Object): Array<Object> =
  * unit contract was broken. Kept separate from toCanonical so MUnit can
  * test the mapping and the guard independently.
  */
-fun toCanonicalChecked(doc: Object): Array<Object> = do {
+fun toCanonicalChecked(doc) = do {
   var bad = unexpectedUnits(doc)
   ---
   if (isEmpty(bad))
