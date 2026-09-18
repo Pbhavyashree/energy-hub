@@ -31,7 +31,7 @@ baseUriParameters:
 mediaType: application/json
 
 uses:
-  energy: ../../../../../../exp-api/src/main/resources/api/library/energy-types.raml
+  energy: library/energy-types.raml
 
 traits:
   correlated:
@@ -63,8 +63,6 @@ traits:
       200:
         body:
           type: energy.PricePoint[]
-          examples:
-            fullDay: !include ../../../test/resources/samples/awattar-canonical-example.json
       502:
         description: Upstream unreachable, or returned a unit this API does not recognise.
         body: energy.ApiError
