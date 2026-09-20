@@ -47,16 +47,6 @@
             </goals>
           </execution>
         </executions>
-        <configuration>
-          <coverage>
-            <runCoverage>true</runCoverage>
-            <failBuild>false</failBuild>
-            <requiredApplicationCoverage>70</requiredApplicationCoverage>
-            <formats>
-              <format>console</format>
-            </formats>
-          </coverage>
-        </configuration>
       </plugin>
     </plugins>
   </build>
