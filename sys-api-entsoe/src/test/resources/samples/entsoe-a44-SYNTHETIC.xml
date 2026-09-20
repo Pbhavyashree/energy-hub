@@ -1,24 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  SYNTHETIC FIXTURE - NOT A REAL CAPTURE.
-
-  Hand-built from the structure documented in the ENTSO-E Transparency
-  Platform RESTful API user guide, so the mapper can be developed before
-  API credentials arrive. Replace it with a real response the moment the
-  token works, and re-run the tests: element order, optional elements and
-  the exact timestamp format are the things most likely to differ.
-
-  Deliberate properties, each one exercising a branch of the mapper:
-    - timeInterval timestamps have NO seconds (YYYY-MM-DDTHH:MMZ), which
-      is how the guide documents them and is not a format DataWeave
-      coerces to DateTime without help.
-    - curveType is A01, so all 24 positions are present.
-    - Prices include a negative value (position 15) and a zero
-      (position 14), which is the case the alerting half of the project
-      exists to catch.
-    - The day is 2026-09-18 in DE-LU: 22:00Z on the 17th to 22:00Z on
-      the 18th, because Berlin is UTC+2 in September.
--->
 <Publication_MarketDocument xmlns="urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:0">
     <mRID>synthetic-fixture-0001</mRID>
     <revisionNumber>1</revisionNumber>

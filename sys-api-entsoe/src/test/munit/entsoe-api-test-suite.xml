@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core
+        http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit
+        http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools
+        http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/http
+        http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+    <munit:config name="entsoe-api-test-suite.xml"/>
+
+    <!--
+      IMPORTANT CAVEAT: both fixtures are SYNTHETIC, hand-built from the
+      structure documented in the ENTSO-E user guide. These tests prove
+      the mapping logic is internally correct; they do NOT prove it
+      matches what ENTSO-E actually sends.
+
+      When credentials arrive: capture real responses, replace the
+      fixtures, and re-run. The things most likely to differ are element
+      ordering, optional elements omitted here, and whether timeInterval
+      timestamps carry seconds.
+    -->
+
+    <munit:test name="maps-a44-to-24-canonical-points">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref"
+                                                whereValue="entsoe-upstream"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[readUrl('classpath://samples/entsoe-a44-SYNTHETIC.xml',
+                                         'application/xml')]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <flow-ref name="fetch-day-ahead-prices"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[sizeOf(payload)]"
+                                     is="#[MunitTools::equalTo(24)]"
+                                     message="A full delivery day is 24 hourly positions."/>
+
+            <!--
+              The reconstruction under test: ENTSO-E sends position 1, not
+              a timestamp. periodStart is 22:00Z on the 17th (Berlin
+              midnight, UTC+2 in September), so position 1 must land there.
+            -->
+            <munit-tools:assert-that expression="#[payload[0].startsAt as String]"
+                                     is="#[MunitTools::equalTo('2026-09-17T22:00:00Z')]"
+                                     message="Position 1 must map to periodStart."/>
+            <munit-tools:assert-that expression="#[payload[0].pricePerMWh]"
+                                     is="#[MunitTools::equalTo(139.24)]"/>
+            <munit-tools:assert-that expression="#[payload[0].source]"
+                                     is="#[MunitTools::equalTo('ENTSOE')]"/>
+            <munit-tools:assert-that expression="#[payload[0].resolutionMinutes]"
+                                     is="#[MunitTools::equalTo(60)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="position-24-lands-on-the-last-hour-of-the-day"
+                description="Catches an off-by-one in the position arithmetic.">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref"
+                                                whereValue="entsoe-upstream"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[readUrl('classpath://samples/entsoe-a44-SYNTHETIC.xml',
+                                         'application/xml')]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <flow-ref name="fetch-day-ahead-prices"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload[-1].startsAt as String]"
+                                     is="#[MunitTools::equalTo('2026-09-18T21:00:00Z')]"
+                                     message="Position 24 starts 23 hours after periodStart."/>
+            <munit-tools:assert-that expression="#[payload[-1].endsAt as String]"
+                                     is="#[MunitTools::equalTo('2026-09-18T22:00:00Z')]"
+                                     message="The series must end exactly at periodEnd."/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="preserves-negative-and-zero-prices"
+                description="Negative prices are the whole point of the alerting layer.">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref"
+                                                whereValue="entsoe-upstream"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[readUrl('classpath://samples/entsoe-a44-SYNTHETIC.xml',
+                                         'application/xml')]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <flow-ref name="fetch-day-ahead-prices"/>
+        </munit:execution>
+
+        <munit:validation>
+            <!-- Position 15 is index 14. -->
+            <munit-tools:assert-that expression="#[payload[14].pricePerMWh]"
+                                     is="#[MunitTools::equalTo(-12.40)]"
+                                     message="A negative price must survive the mapping unchanged."/>
+            <munit-tools:assert-that expression="#[payload[14].pricePerKWh]"
+                                     is="#[MunitTools::equalTo(-0.0124)]"
+                                     message="Sign must survive the per-kWh conversion too."/>
+            <munit-tools:assert-that expression="#[payload[13].pricePerMWh]"
+                                     is="#[MunitTools::equalTo(0)]"
+                                     message="Zero must not be treated as absent."/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="every-point-converts-mwh-to-kwh-correctly">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref"
+                                                whereValue="entsoe-upstream"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[readUrl('classpath://samples/entsoe-a44-SYNTHETIC.xml',
+                                         'application/xml')]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <flow-ref name="fetch-day-ahead-prices"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that
+                expression="#[%dw 2.0 output application/java --- sizeOf(payload filter ((p) -> p.pricePerKWh != round((p.pricePerMWh / 1000) * 100000) / 100000))]"
+                is="#[MunitTools::equalTo(0)]"
+                message="Every point's per-kWh price must equal per-MWh / 1000."/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="an-acknowledgement-raises-no-data-not-a-success"
+                description="ENTSO-E returns 200 with an Acknowledgement when nothing is published."
+                expectedErrorType="ENTSOE:NO_DATA">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref"
+                                                whereValue="entsoe-upstream"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[readUrl('classpath://samples/entsoe-a44-acknowledgement-SYNTHETIC.xml',
+                                         'application/xml')]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <flow-ref name="fetch-day-ahead-prices"/>
+        </munit:execution>
+    </munit:test>
+
+</mule>

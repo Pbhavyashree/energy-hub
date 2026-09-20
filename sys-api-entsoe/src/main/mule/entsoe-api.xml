@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core
+        http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http
+        http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit
+        http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd">
+
+    <configuration-properties file="config.yaml"/>
+
+    <http:listener-config name="entsoe-httpListener">
+        <http:listener-connection host="0.0.0.0" port="${api.port}"/>
+    </http:listener-config>
+
+    <http:request-config name="entsoe-upstream">
+        <http:request-connection protocol="HTTPS"
+                                host="${entsoe.host}"
+                                port="443"/>
+    </http:request-config>
+
+    <apikit:config name="entsoe-config"
+                   api="api/entsoe-sys-api.raml"
+                   outboundHeadersMapName="outboundHeaders"
+                   httpStatusVarName="httpStatus"/>
+
+    <!-- ============================================================
+         Main flow
+         ============================================================ -->
+
+    <flow name="entsoe-main">
+        <http:listener config-ref="entsoe-httpListener" path="/api/sys/entsoe/v1/*">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:error-response>
+        </http:listener>
+
+        <apikit:router config-ref="entsoe-config"/>
+
+        <error-handler>
+            <on-error-propagate type="APIKIT:BAD_REQUEST">
+                <set-variable variableName="httpStatus" value="400"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_FOUND">
+                <set-variable variableName="httpStatus" value="404"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:METHOD_NOT_ALLOWED">
+                <set-variable variableName="httpStatus" value="405"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+
+            <!--
+              The upstream answered but had nothing. Deliberately distinct
+              from 502: "no data published for that day" and "ENTSO-E is
+              down" need different reactions from the process layer.
+            -->
+            <on-error-propagate type="ENTSOE:NO_DATA">
+                <set-variable variableName="httpStatus" value="404"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+
+            <on-error-propagate type="HTTP:TIMEOUT">
+                <set-variable variableName="httpStatus" value="504"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+            <on-error-propagate type="HTTP:CONNECTIVITY, HTTP:UNAUTHORIZED, HTTP:FORBIDDEN">
+                <set-variable variableName="httpStatus" value="502"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+            <on-error-propagate type="ANY">
+                <set-variable variableName="httpStatus" value="500"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <flow name="get:\day-ahead-prices:entsoe-config">
+        <flow-ref name="fetch-day-ahead-prices"/>
+    </flow>
+
+    <!-- ============================================================
+         The work
+         ============================================================ -->
+
+    <sub-flow name="fetch-day-ahead-prices">
+        <!--
+          APIkit enforces periodStart/periodEnd on a real request; the
+          defaults only apply when this sub-flow is called directly, which
+          is what the test suite does.
+        -->
+        <set-variable variableName="biddingZone"
+                      value="#[attributes.queryParams.biddingZone default 'DE_LU']"/>
+        <set-variable variableName="periodStart"
+                      value="#[attributes.queryParams.periodStart default (now() >> 'UTC')]"/>
+        <set-variable variableName="periodEnd"
+                      value="#[attributes.queryParams.periodEnd default ((now() + |P1D|) >> 'UTC')]"/>
+
+        <!--
+          Bidding zone -> EIC code. VERIFY any zone other than DE_LU
+          against the ENTSO-E area list before trusting it.
+        -->
+        <set-variable variableName="eic" value="#[%dw 2.0
+            output application/java
+            ---
+            {
+              DE_LU: '10Y1001A1001A82H',
+              AT:    '10YAT-APG------L',
+              FR:    '10YFR-RTE------C',
+              NL:    '10YNL----------L',
+              DK_1:  '10YDK-1--------W',
+              DK_2:  '10YDK-2--------M'
+            }[vars.biddingZone]]"/>
+
+        <logger level="INFO"
+                message="#['Fetching ENTSO-E A44 zone=' ++ vars.biddingZone
+                          ++ ' corr=' ++ (correlationId default '-')]"/>
+
+        <http:request config-ref="entsoe-upstream"
+                      method="GET"
+                      path="/api"
+                      responseTimeout="${entsoe.timeoutMs}">
+            <http:query-params><![CDATA[#[%dw 2.0
+                output application/java
+                fun entsoeInstant(d) =
+                    ((d as DateTime) >> 'UTC') as String {format: "yyyyMMddHHmm"}
+                ---
+                {
+                    securityToken: p('entsoe.token'),
+                    documentType: 'A44',
+                    in_Domain: vars.eic,
+                    out_Domain: vars.eic,
+                    periodStart: entsoeInstant(vars.periodStart),
+                    periodEnd: entsoeInstant(vars.periodEnd)
+                }]]]></http:query-params>
+        </http:request>
+
+        <!--
+          ================= READ THE BODY EXACTLY ONCE =================
+
+          The response payload is a non-repeatable stream. This flow needs
+          to inspect the document three times - is it an Acknowledgement,
+          what curveType does it use, and finally the mapping - and each
+          traversal consumes more of the stream. The symptom is vicious:
+          no error, no warning, a well-formed response with correct
+          timestamps, and every price set to the LAST <Point> in the
+          document, because that is all the exhausted stream still yields.
+
+          Serialising to text once makes every later parse independent.
+          Do not replace vars.rawXml with payload in the expressions
+          below without re-reading this comment.
+        -->
+        <set-variable variableName="rawXml" value="#[write(payload, 'application/xml')]"/>
+
+        <set-variable variableName="isAck" value="#[%dw 2.0
+            import isAcknowledgement from modules::EntsoeMapper
+            output application/java
+            ---
+            isAcknowledgement(read(vars.rawXml, 'application/xml'))]"/>
+
+        <choice>
+            <when expression="#[vars.isAck]">
+                <set-variable variableName="ackReason" value="#[%dw 2.0
+                    import acknowledgementReason from modules::EntsoeMapper
+                    output application/java
+                    ---
+                    acknowledgementReason(read(vars.rawXml, 'application/xml'))]"/>
+                <logger level="INFO"
+                        message="#['ENTSO-E acknowledgement code='
+                                  ++ (vars.ackReason.code default '-')
+                                  ++ ' text=' ++ (vars.ackReason.text default '-')]"/>
+                <raise-error type="ENTSOE:NO_DATA"
+                             description="ENTSO-E published no data for the requested zone and period."/>
+            </when>
+        </choice>
+
+        <!--
+          The guide states A44 uses curveType A01, meaning every position
+          is present. The mapper expands positions defensively either way;
+          this logs when that assumption does not hold.
+        -->
+        <set-variable variableName="curves" value="#[%dw 2.0
+            import curveTypes from modules::EntsoeMapper
+            output application/java
+            ---
+            curveTypes(read(vars.rawXml, 'application/xml'))]"/>
+
+        <choice>
+            <when expression="#[vars.curves != ['A01']]">
+                <logger level="WARN"
+                        message="#['Unexpected curveType(s) from ENTSO-E: '
+                                  ++ write(vars.curves, 'application/json')
+                                  ++ ' - sparse position expansion is now load-bearing']"/>
+            </when>
+        </choice>
+
+        <set-payload value="#[%dw 2.0
+            import toCanonical from modules::EntsoeMapper
+            output application/json
+            ---
+            toCanonical(read(vars.rawXml, 'application/xml'))]"/>
+
+        <!-- Free the copy once mapping is done. -->
+        <remove-variable variableName="rawXml"/>
+
+        <logger level="INFO"
+                message="#['Mapped ' ++ sizeOf(payload) ++ ' price points']"/>
+    </sub-flow>
+
+    <sub-flow name="build-api-error">
+        <logger level="WARN"
+                message="#['Returning ' ++ (vars.httpStatus default 500)
+                          ++ ' corr=' ++ (correlationId default '-')
+                          ++ ' type=' ++ (error.errorType.identifier default 'UNKNOWN')
+                          ++ ' msg=' ++ (error.description default '-')]"/>
+
+        <set-payload value="#[%dw 2.0
+            output application/json
+            ---
+            {
+              code: (error.errorType.identifier default 'INTERNAL_ERROR'),
+              message: (error.description default 'Unexpected failure.'),
+              correlationId: (correlationId default ''),
+              occurredAt: now() >> 'UTC'
+            }]"/>
+    </sub-flow>
+
+</mule>

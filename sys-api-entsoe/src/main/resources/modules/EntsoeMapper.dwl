@@ -10,12 +10,20 @@
  *   acknowledgement urn:iec62325.351:tc57wg16:451-1:acknowledgementdocument:7:0
  *
  * Developed against a synthetic fixture built from the documented
- * structure. Revalidate against a real response before trusting it:
- * element ordering, optional elements and the exact timestamp format
- * are the things most likely to differ.
+ * structure. Revalidate against a real response before trusting it.
  *
- * No return-type annotations on document-shaped parameters - indexing
- * into a bare Object yields Any, which breaks a declared return type.
+ * NO TYPE ANNOTATIONS on document-shaped parameters or their return
+ * types. With `mapPeriod(period: Object)` and
+ * `expandPositions(declared: Array, ...): Array<Object>` in place, this
+ * mapper silently assigned the LAST price in the series to every
+ * interval: elements reaching expandPositions were Any-typed, so
+ * `d.position <= slot` stopped discriminating, `applicable` was never
+ * filtered, and `applicable[-1]` was always the final point.
+ *
+ * No error, no warning - just a flat 24-hour price curve. Each function
+ * tested correctly in isolation; only the composition failed. Scalar
+ * parameters (raw: String, perMWh: Number) annotate safely and are
+ * kept.
  */
 
 ns pub urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:0
@@ -61,21 +69,19 @@ fun toKWh(perMWh: Number): Number = round((perMWh / 1000) * 100000) / 100000
  *
  * Expansion is defensive: with a complete A01 series it is the identity,
  * so it costs nothing and covers the case where that assumption is
- * wrong. `filled` marks a slot that had no declared Point, so the flow
- * can log when it is actually doing work.
+ * wrong.
  */
-fun expandPositions(declared: Array, intervalCount: Number): Array<Object> =
+fun expandPositions(declared, intervalCount) =
     (1 to intervalCount) map ((slot) -> do {
-        var applicable = declared filter ($.position <= slot)
+        var applicable = declared filter ((d) -> d.position <= slot)
         ---
         {
             slot: slot,
-            price: (applicable[-1] default declared[0]).price,
-            filled: sizeOf(declared filter ((d) -> d.position == slot)) == 0
+            price: (applicable[-1] default declared[0]).price
         }
     })
 
-fun mapPeriod(period: Object): Array<Object> = do {
+fun mapPeriod(period) = do {
     var start = toInstant(period.pub#timeInterval.pub#start as String)
     var end = toInstant(period.pub#timeInterval.pub#end as String)
     var stepMins = resolutionMinutes(period.pub#resolution as String)

@@ -1,0 +1,73 @@
+#%RAML 1.0
+title: ENTSO-E System API
+version: v1
+description: |
+  Thin wrapper over the ENTSO-E Transparency Platform RESTful API.
+
+  Its only job is to speak ENTSO-E's dialect so nothing else has to: it
+  holds the security token, translates a bidding zone into an EIC code,
+  builds the documentType/domain query string, formats timestamps as
+  yyyyMMddHHmm, and converts Publication_MarketDocument XML into the
+  canonical model.
+
+  Deliberately absent: caching, aggregation, merging with other sources,
+  business rules. Those belong one layer up. If a query parameter is
+  needed here that ENTSO-E does not itself understand, the logic is in
+  the wrong layer.
+
+  Upstream behaviour this API normalises away:
+    - Prices are not timestamped. Each Point carries a position, and the
+      instant is periodStart + (position - 1) * resolution.
+    - "No matching data found" comes back as an Acknowledgement document
+      with HTTP 200 and reason code 999, not as a 404.
+    - Timestamps in and out use different formats: requests want
+      yyyyMMddHHmm, responses carry yyyy-MM-ddTHH:mmZ with no seconds.
+
+baseUri: http://{host}:{port}/api/sys/entsoe/{version}
+baseUriParameters:
+  host:
+    default: localhost
+  port:
+    default: "8091"
+mediaType: application/json
+
+uses:
+  energy: library/energy-types.raml
+
+traits:
+  correlated:
+    headers:
+      X-Correlation-Id?:
+        type: string
+        description: Echoed into upstream calls and error responses.
+
+/day-ahead-prices:
+  description: Day-ahead wholesale prices. Maps ENTSO-E documentType A44.
+  get:
+    is: [correlated]
+    displayName: Get day-ahead prices for a bidding zone and period
+    queryParameters:
+      biddingZone:
+        type: energy.BiddingZone
+        default: DE_LU
+      periodStart:
+        type: datetime
+        description: Inclusive. Converted to ENTSO-E's yyyyMMddHHmm UTC form.
+      periodEnd:
+        type: datetime
+        description: Exclusive.
+    responses:
+      200:
+        body: energy.PricePoint[]
+      404:
+        description: |
+          ENTSO-E returned an Acknowledgement document - no published
+          data for the requested zone and period. Distinct from a 502:
+          the upstream answered, it just had nothing.
+        body: energy.ApiError
+      502:
+        description: Upstream unreachable, or rejected the credentials.
+        body: energy.ApiError
+      504:
+        description: Upstream did not respond within the timeout.
+        body: energy.ApiError

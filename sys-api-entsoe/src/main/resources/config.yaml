@@ -1,0 +1,21 @@
+# Non-secret configuration. Committed on purpose.
+#
+# The token below is a placeholder so the application deploys and the
+# test suite runs without credentials - every test mocks the upstream,
+# so its value is never used in a build.
+#
+# To supply the real token at runtime, override it as a system property
+# rather than editing this file:
+#
+#   bin\mule.bat -M-Dentsoe.token=YOUR_REAL_TOKEN
+#
+# System properties take precedence over this file, so the real token
+# never touches the working tree and cannot be committed by accident.
+
+entsoe:
+  token: "REPLACE_AT_RUNTIME"
+  host: "web-api.tp.entsoe.eu"
+  timeoutMs: "20000"
+
+api:
+  port: "8091"

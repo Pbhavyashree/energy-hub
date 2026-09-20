@@ -107,3 +107,98 @@ This turned out to suit the target anyway — Studio's most-used feature is
 the Transform Message component, which CE does not have. `mvn clean
 package` produces the deployable jar; dropping it in the runtime's
 `apps/` folder is the same step the Docker deployment will use.
+
+---
+
+# ENTSO-E system API (in progress)
+
+## Mule YAML properties must be quoted strings
+
+`entsoe.timeoutMs: 20000` in `config.yaml` stops the application deploying:
+
+```
+YAML configuration properties only supports string values, make sure to
+wrap the value with " so you force the value to be an string.
+```
+
+Every value needs quoting, numbers included. The `${...}` placeholders still
+resolve where they are used, so `port: "8091"` works fine as a listener port.
+
+## `some` lives in dw::core::Arrays, not core
+
+`declared some ($.position == slot)` fails with *"Unable to resolve reference
+of: `some`"*, and then reports a second error for `$`, because the lambda's
+parameter cannot resolve either once the function does not. One cause, two
+errors. Either import it, or use `sizeOf(... filter ...) == 0`.
+
+## ENTSO-E timestamps carry no seconds
+
+The guide documents `timeInterval` as `yyyy-MM-ddTHH:mmZ`. DataWeave will not
+coerce that to `DateTime` directly, hence `normaliseInstant` in the mapper,
+which tolerates both forms.
+
+## A44 uses curveType A01
+
+Per the user guide, so every position should be present and the sparse
+expansion in the mapper is insurance rather than the expected path. The flow
+logs a WARN if any other curve type appears, so a silent change upstream
+becomes visible.
+
+## Reading the payload more than once silently truncates it — OPEN
+
+**The most dangerous bug on the project so far, and not yet fixed.**
+
+The flow inspected the response three times: is it an Acknowledgement, what
+curveType does it use, then the mapping. The payload is a non-repeatable
+stream, so each traversal consumed more of it. By the third, only the final
+`<Point>` remained.
+
+The result was a well-formed response: 24 intervals, correct timestamps,
+internally consistent per-kWh conversion — and every price set to 155.60, the
+last point in the document. No error. No warning. A flat 24-hour price curve
+that no schema check would catch, and the alerting layer would simply never
+fire.
+
+What proved it: a probe that read the file and traversed it **once** in a
+single expression returned all 24 points. The same navigation applied to
+`payload` after an earlier traversal returned 1 — position 24.
+
+How it was nearly missed: every assertion about structure passed. Only the
+assertions on actual values failed.
+
+Three wrong hypotheses were chased first — a `$` binding in a nested lambda,
+type annotations on document-shaped parameters, and the XML reader collapsing
+repeated siblings. Each was plausible, each was tested in the playground
+where the code worked fine, and each was wrong because the playground never
+reproduced the repeated-traversal conditions. The lesson is to measure inside
+the failing environment early rather than reason from symptoms.
+
+### Where it stands
+
+Attempted fix: serialise the body once with `write(payload,
+'application/xml')` and parse from that string at each use. That throws:
+
+```
+Trying to output non-whitespace characters outside main element tree
+(in prolog or epilog), while writing Xml
+```
+
+Caused by the explanatory `<!-- -->` comment blocks in the fixtures, which
+DataWeave treats as prolog content and refuses to re-emit. Comments were moved
+to `samples/README.md` and the fixtures cleaned, but the suite is still red:
+4 errors, 1 failure.
+
+### Start here next session
+
+1. Get the current error message — it may no longer be the prolog one.
+2. If `write` is still the problem, try materialising differently rather than
+   round-tripping through XML text: read the response as a string before any
+   parsing, or restructure the flow so the document is traversed exactly once
+   and the three answers come out of a single expression.
+3. Check whether the real HTTP response behaves the same way. The Mule HTTP
+   connector uses repeatable streams by default, so production may differ from
+   the MUnit mock, which uses `readUrl`. If so, the test is stricter than
+   reality — still worth fixing, but the priority changes.
+
+The aWATTar module is unaffected and stays green; CI only builds that module
+so far.
