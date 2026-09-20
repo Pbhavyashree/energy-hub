@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Lets you trigger a run by hand from the Actions tab, which is useful
+  # when an upstream contract changes and you want to confirm nothing
+  # depended on it.
+  workflow_dispatch:
+
+jobs:
+  awattar-sys-api:
+    name: aWATTar system API
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          # Caches ~/.m2 keyed on the pom. The first run pulls the whole
+          # Mule runtime dependency tree and takes several minutes; later
+          # runs reuse it.
+          cache: maven
+
+      - name: Run MUnit tests
+        working-directory: sys-api-awattar
+        run: mvn --batch-mode --no-transfer-progress clean test
+
+      - name: Package deployable artifact
+        working-directory: sys-api-awattar
+        run: mvn --batch-mode --no-transfer-progress package -DskipTests
+
+      # Keeps the built jar for 7 days so a green run can be deployed
+      # without rebuilding locally.
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: awattar-sys-api
+          path: sys-api-awattar/target/*-mule-application.jar
+          retention-days: 7
+
+      # MUnit writes its reports here regardless of outcome, so this runs
+      # even when tests fail - which is exactly when you want them.
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: munit-reports
+          path: sys-api-awattar/target/munit-reports/
+          retention-days: 7
+          if-no-files-found: ignore
