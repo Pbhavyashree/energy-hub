@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core
+        http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit
+        http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools
+        http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/http
+        http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+    <munit:config name="awattar-api-test-suite.xml"/>
+
+    <!--
+      Every test mocks the upstream, so the suite never touches the network.
+      Two reasons that matters: the build stays green offline, and the
+      empty-response case can be tested on demand instead of only between
+      midnight and 13:00 CET when the auction has not yet cleared.
+
+      The fixtures are real captured responses, not hand-written JSON.
+      Invented test data would have hidden both the millisecond timestamps
+      and the end-boundary clipping.
+    -->
+
+    <munit:test name="maps-a-full-day-to-24-canonical-points">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref"
+                                                whereValue="awattar-upstream"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[readUrl('classpath://samples/awattar-tomorrow-full.json',
+                                         'application/json')]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <flow-ref name="get-marketdata-flow"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[sizeOf(payload)]"
+                                     is="#[MunitTools::equalTo(24)]"
+                                     message="A midnight-to-midnight range must yield 24 hourly points."/>
+
+            <!-- Berlin is UTC+2 in September, so local midnight is 22:00Z the previous day. -->
+            <munit-tools:assert-that expression="#[payload[0].startsAt as String]"
+                                     is="#[MunitTools::equalTo('2026-09-17T22:00:00Z')]"
+                                     message="First interval should be local midnight expressed as UTC."/>
+
+            <munit-tools:assert-that expression="#[payload[0].resolutionMinutes]"
+                                     is="#[MunitTools::equalTo(60)]"/>
+            <munit-tools:assert-that expression="#[payload[0].source]"
+                                     is="#[MunitTools::equalTo('AWATTAR')]"/>
+            <munit-tools:assert-that expression="#[payload[0].currency]"
+                                     is="#[MunitTools::equalTo('EUR')]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="converts-mwh-to-kwh-at-five-decimals"
+                description="A 1000x error here would be invisible in the shape of the response.">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref"
+                                                whereValue="awattar-upstream"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[readUrl('classpath://samples/awattar-tomorrow-full.json',
+                                         'application/json')]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <flow-ref name="get-marketdata-flow"/>
+        </munit:execution>
+
+        <munit:validation>
+            <!-- Checked across every point, not just the first. -->
+            <munit-tools:assert-that
+                expression="#[%dw 2.0 output application/java --- sizeOf(payload filter ((p) -> p.pricePerKWh != round((p.pricePerMWh / 1000) * 100000) / 100000))]"
+                is="#[MunitTools::equalTo(0)]"
+                message="Every point's per-kWh price must equal per-MWh / 1000."/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="returns-empty-array-when-the-auction-has-not-cleared"
+                description="200 with no data is a valid upstream state, not an error.">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref"
+                                                whereValue="awattar-upstream"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[readUrl('classpath://samples/awattar-empty.json',
+                                         'application/json')]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <flow-ref name="get-marketdata-flow"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[sizeOf(payload)]"
+                                     is="#[MunitTools::equalTo(0)]"
+                                     message="An uncleared auction must map to [], not fail."/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="maps-a-clipped-range-without-inventing-the-missing-hour"
+                description="Regression test for the end-boundary off-by-one.">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref"
+                                                whereValue="awattar-upstream"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[readUrl('classpath://samples/awattar-clipped-range.json',
+                                         'application/json')]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <flow-ref name="get-marketdata-flow"/>
+        </munit:execution>
+
+        <munit:validation>
+            <!--
+              aWATTar's `end` parameter filters on an interval's END, so a
+              request ending 23:59 local silently drops the 23:00-00:00
+              interval. The mapper must pass that through faithfully:
+              23 points, not a helpfully fabricated 24th.
+            -->
+            <munit-tools:assert-that expression="#[sizeOf(payload)]"
+                                     is="#[MunitTools::equalTo(23)]"
+                                     message="A clipped range must stay clipped."/>
+            <munit-tools:assert-that expression="#[payload[-1].endsAt as String]"
+                                     is="#[MunitTools::equalTo('2026-09-18T21:00:00Z')]"
+                                     message="Last interval ends at 22:00 Berlin, not midnight."/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="orders-points-chronologically"
+                description="The cheapest-window logic downstream assumes a sorted series.">
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref"
+                                                whereValue="awattar-upstream"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[readUrl('classpath://samples/awattar-default.json',
+                                         'application/json')]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <flow-ref name="get-marketdata-flow"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that
+                expression="#[(payload map ($.startsAt as String)) == ((payload map ($.startsAt as String)) orderBy $)]"
+                is="#[MunitTools::equalTo(true)]"
+                message="toCanonical must return points in chronological order."/>
+        </munit:validation>
+    </munit:test>
+
+</mule>
