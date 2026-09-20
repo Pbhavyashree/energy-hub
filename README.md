@@ -1,3 +1,5 @@
+![CI](https://github.com/Pbhavyashree/energy-hub/actions/workflows/ci.yml/badge.svg)
+
 # energy-hub
 
 An API-led integration layer over German day-ahead electricity prices and
