@@ -4,3 +4,4 @@ secrets.yaml
 .DS_Store
 target/
 munit.log
+sys-api-*/src/main/resources/api/library/

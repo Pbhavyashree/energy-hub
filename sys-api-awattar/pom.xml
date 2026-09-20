@@ -23,9 +23,42 @@
   <build>
     <plugins>
       <!--
+        The canonical RAML library lives once, at ../shared-specs/, and is
+        copied in before the build packages resources. Without this, each
+        module keeps its own copy and the two drift - which is exactly what
+        a canonical model exists to prevent.
+
+        The destination is gitignored, so there is one tracked copy.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>copy-shared-specs</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.basedir}/src/main/resources/api/library</outputDirectory>
+              <overwrite>true</overwrite>
+              <resources>
+                <resource>
+                  <directory>${project.basedir}/../shared-specs</directory>
+                  <includes>
+                    <include>*.raml</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
         extensions=true is what makes "mule-application" packaging work.
-        Without it Maven fails with "unknown packaging", which is the most
-        common first error on a hand-written Mule pom.
       -->
       <plugin>
         <groupId>org.mule.tools.maven</groupId>
@@ -34,6 +67,10 @@
         <extensions>true</extensions>
       </plugin>
 
+      <!--
+        No coverage block: MUnit coverage is an Enterprise-only feature
+        and is ignored on CE. The gate here is pass/fail.
+      -->
       <plugin>
         <groupId>com.mulesoft.munit.tools</groupId>
         <artifactId>munit-maven-plugin</artifactId>
@@ -59,11 +96,6 @@
       <classifier>mule-plugin</classifier>
     </dependency>
 
-    <!--
-      APIkit: generates routing from the RAML. Comment this out for the
-      first build if you want to prove the toolchain with a plain listener
-      before adding spec-driven routing.
-    -->
     <dependency>
       <groupId>org.mule.modules</groupId>
       <artifactId>mule-apikit-module</artifactId>
