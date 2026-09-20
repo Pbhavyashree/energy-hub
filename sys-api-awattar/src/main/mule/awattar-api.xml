@@ -1,21 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mule xmlns="http://www.mulesoft.org/schema/mule/core"
       xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:schemaLocation="
         http://www.mulesoft.org/schema/mule/core
         http://www.mulesoft.org/schema/mule/core/current/mule.xsd
         http://www.mulesoft.org/schema/mule/http
-        http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+        http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit
+        http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd">
 
     <!--
-      Deliberately minimal: no APIkit, no error handler, no config file.
-      The only goal of this file is to prove the toolchain end to end -
-      Maven resolves, the app deploys, the DataWeave module loads from
-      src/main/resources/modules, and a real upstream call maps correctly.
+      Spec-driven routing. The RAML is now load-bearing: APIkit reads it at
+      deploy time, routes by resource and method, and rejects a request that
+      violates the spec before any of this code runs. Add a resource to the
+      RAML without a matching flow and the app refuses to deploy - which is
+      the point. A spec that can drift from the implementation is decoration.
 
-      Once `curl localhost:8092/api/sys/awattar/v1/marketdata` returns
-      canonical points, add the APIkit router and the error handling.
+      Structure:
+        awattar-main              - listener + router + protocol error mapping
+        get:\marketdata:...       - the flow APIkit routes to, thin by design
+        get-marketdata-flow       - the actual work, kept as a named sub-flow
+                                    so MUnit can exercise it without HTTP
+
+      That last split matters: the existing test suite flow-refs
+      get-marketdata-flow, and it keeps working unchanged.
     -->
 
     <http:listener-config name="awattar-httpListener">
@@ -28,10 +38,96 @@
                                 port="443"/>
     </http:request-config>
 
-    <flow name="get-marketdata-flow">
-        <http:listener config-ref="awattar-httpListener"
-                       path="/api/sys/awattar/v1/marketdata"/>
+    <apikit:config name="awattar-config"
+                   api="api/awattar-sys-api.raml"
+                   outboundHeadersMapName="outboundHeaders"
+                   httpStatusVarName="httpStatus"/>
 
+    <!-- ============================================================
+         Main flow: listener, router, protocol-level errors
+         ============================================================ -->
+
+    <flow name="awattar-main">
+        <http:listener config-ref="awattar-httpListener" path="/api/sys/awattar/v1/*">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:error-response>
+        </http:listener>
+
+        <apikit:router config-ref="awattar-config"/>
+
+        <error-handler>
+            <!--
+              APIkit raises these before the implementation flow is reached:
+              a malformed datetime in `from`, an unknown path, a wrong method.
+              Each is mapped to the ApiError shape the RAML promises, so a
+              client never sees a stack trace or an HTML error page.
+            -->
+            <on-error-propagate type="APIKIT:BAD_REQUEST">
+                <set-variable variableName="httpStatus" value="400"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+
+            <on-error-propagate type="APIKIT:NOT_FOUND">
+                <set-variable variableName="httpStatus" value="404"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+
+            <on-error-propagate type="APIKIT:METHOD_NOT_ALLOWED">
+                <set-variable variableName="httpStatus" value="405"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+
+            <on-error-propagate type="APIKIT:NOT_ACCEPTABLE">
+                <set-variable variableName="httpStatus" value="406"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+
+            <on-error-propagate type="APIKIT:UNSUPPORTED_MEDIA_TYPE">
+                <set-variable variableName="httpStatus" value="415"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+
+            <!--
+              Upstream failures. Distinguishing these matters operationally:
+              502 says aWATTar is unreachable, 504 says it was too slow. A
+              single 500 for both tells whoever is on call nothing.
+            -->
+            <on-error-propagate type="HTTP:TIMEOUT">
+                <set-variable variableName="httpStatus" value="504"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+
+            <on-error-propagate type="HTTP:CONNECTIVITY">
+                <set-variable variableName="httpStatus" value="502"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+
+            <on-error-propagate type="ANY">
+                <set-variable variableName="httpStatus" value="500"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <!-- ============================================================
+         APIkit routes here. Flow name is dictated by the spec:
+         <method>:\<resource>:<apikit-config-name>
+         ============================================================ -->
+
+    <flow name="get:\marketdata:awattar-config">
+        <flow-ref name="get-marketdata-flow"/>
+    </flow>
+
+    <!-- ============================================================
+         The actual work
+         ============================================================ -->
+
+    <sub-flow name="get-marketdata-flow">
         <logger level="INFO"
                 message="#['Fetching aWATTar market data, corr=' ++ (correlationId default '-')]"/>
 
@@ -40,9 +136,12 @@
                       path="/v1/marketdata"
                       responseTimeout="10000">
             <!--
-              Pass through from/to when the caller supplied them; aWATTar
-              expects epoch milliseconds. Omitting both gives its rolling
-              24-hour window from the current hour.
+              aWATTar expects epoch milliseconds. Omitting both bounds gives
+              its rolling 24-hour window from the current hour.
+
+              APIkit has already validated that these parse as datetimes, so
+              the coercion below cannot fail on a malformed value the way it
+              could before the router existed.
             -->
             <http:query-params><![CDATA[#[
                 {} ++
@@ -55,11 +154,8 @@
             ]]]></http:query-params>
         </http:request>
 
-        <!--
-          No ee:transform - that component is Enterprise only. Inline
-          DataWeave importing the module is the CE-compatible equivalent,
-          and it is the same module the playground validated.
-        -->
+        <!-- No ee:transform - Enterprise only. Inline DataWeave importing
+             the module is the CE-compatible equivalent. -->
         <set-payload value="#[%dw 2.0
             import toCanonical from modules::AwattarMapper
             output application/json
@@ -68,6 +164,28 @@
 
         <logger level="INFO"
                 message="#['Mapped ' ++ sizeOf(payload) ++ ' price points']"/>
-    </flow>
+    </sub-flow>
+
+    <!-- ============================================================
+         One error shape, whatever went wrong
+         ============================================================ -->
+
+    <sub-flow name="build-api-error">
+        <logger level="WARN"
+                message="#['Returning ' ++ (vars.httpStatus default 500) ++ ' corr='
+                          ++ (correlationId default '-')
+                          ++ ' type=' ++ (error.errorType.identifier default 'UNKNOWN')
+                          ++ ' msg=' ++ (error.description default '-')]"/>
+
+        <set-payload value="#[%dw 2.0
+            output application/json
+            ---
+            {
+              code: (error.errorType.identifier default 'INTERNAL_ERROR'),
+              message: (error.description default 'Unexpected failure.'),
+              correlationId: (correlationId default ''),
+              occurredAt: now() >> 'UTC'
+            }]"/>
+    </sub-flow>
 
 </mule>
