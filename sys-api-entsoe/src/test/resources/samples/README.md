@@ -2,64 +2,86 @@
 
 ## Provenance
 
-Both files are **SYNTHETIC** — hand-built from the structure documented in the
-ENTSO-E Transparency Platform RESTful API user guide, so the mapper could be
-developed before API credentials arrived. Neither is a captured response.
+Both files are **real captured responses** from the ENTSO-E Transparency
+Platform, taken on 2026-09-24 for DE-LU (`10Y1001A1001A82H`), delivery day
+2026-09-25.
 
-Replace them with real captures as soon as the security token works, then
-re-run the suite. The things most likely to differ:
-
-- element ordering
-- optional elements omitted here
-- whether `timeInterval` timestamps carry seconds (the guide shows
-  `yyyy-MM-ddTHH:mmZ`, without)
+They replaced synthetic fixtures built from the archived API user guide. Those
+were wrong about the namespace, the curve type, the resolution and the number
+of TimeSeries — and every test written against them passed, because the
+fixture and the mapper shared the same wrong assumptions. See `NOTES.md`.
 
 ## Why there are no comments inside the XML
 
-There were, and they broke the build.
+These are verbatim API responses. Keeping them byte-identical to what the
+upstream sends is the point — commentary belongs here instead.
 
-The flow serialises the response body once with `write(payload,
-'application/xml')` so the document can be inspected several times without
-re-reading a non-repeatable stream. DataWeave reads a comment sitting before
-the root element as prolog content and then refuses to write it back:
+## entsoe-a44-REAL.xml
 
-```
-Trying to output non-whitespace characters outside main element tree
-(in prolog or epilog), while writing Xml
-```
+A full delivery day, and considerably more interesting than the invented one:
 
-Real ENTSO-E responses carry no such comment, so the failure was caused
-purely by explanatory text added to the fixture. Fixtures should look like
-what the upstream actually sends; commentary belongs here instead.
-
-## entsoe-a44-SYNTHETIC.xml
-
-A full delivery day for DE-LU, 2026-09-18: 24 hourly positions from 22:00Z on
-the 17th to 22:00Z on the 18th, because Berlin is UTC+2 in September.
-
-Deliberate properties, each exercising a branch of the mapper:
-
-| Property | Why |
+| Property | Value |
 |---|---|
-| `timeInterval` timestamps have no seconds | The documented format; DataWeave will not coerce it to `DateTime` without help |
-| `curveType` is `A01` | All 24 positions present, which is what the guide says A44 uses |
-| Position 14 is `0` | Zero must not be treated as absent |
-| Position 15 is `-12.40` | Negative prices are the reason the alerting layer exists |
-| Prices vary across the day | A flat series would have hidden the stream-consumption bug, where every interval took the last point's price |
+| namespace | `urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3` |
+| resolution | `PT15M` — 96 quarter-hourly intervals |
+| curveType | `A03` — sparse; repeated prices are omitted |
+| TimeSeries | **two**, covering identical intervals |
+| period | 2026-09-24T22:00Z → 2026-09-25T22:00Z (Berlin midnight to midnight, UTC+2) |
 
-## entsoe-a44-acknowledgement-SYNTHETIC.xml
+### The two TimeSeries
+
+Distinguished only by
+`classificationSequence_AttributeInstanceComponent.position`:
+
+- **sequence 1** — the primary day-ahead auction (EPEX SPOT). This is *the*
+  day-ahead price and the one the mapper selects.
+- **sequence 2** — the separate EXAA auction held at 10:15 CET.
+
+**Document order is not sequence order.** In this capture the first
+`<TimeSeries>` carries sequence 2, so `TimeSeries[0]` selects EXAA. The filter
+must be on the classification field.
+
+### Known values, used by the tests
+
+| | |
+|---|---|
+| sequence 1, position 1 | 196.99 |
+| sequence 1, positions 1–4 | 196.99, 184.40, 175.79, 170.59 (mean 181.9425) |
+| sequence 2, position 1 | 192.55 — appears first in the document |
+| aWATTar, hour 00:00–01:00 | 181.94 |
+
+That last row is the cross-source check: aWATTar publishes the same EPEX
+auction hourly, and its price for the hour equals the mean of sequence 1's
+four quarter-hours. It confirms both the auction choice and the position
+arithmetic against a source sharing no code with this project, and it is
+asserted in the test suite.
+
+### Sparseness
+
+curveType A03 omits positions whose price repeats the previous one — this
+capture skips positions 7 and 10 in the sequence-2 series. The mapper expands
+positions across the full interval count and holds values forward. Mapping
+declared points one-to-one would produce a short, misaligned day.
+
+## entsoe-a44-acknowledgement-REAL.xml
 
 What ENTSO-E returns when nothing is published for the requested zone and
-period: an `Acknowledgement_MarketDocument` with HTTP **200** and reason code
-999 — not a 404. An empty result therefore looks like success at the transport
-layer, which is why the flow checks for it explicitly before mapping.
+period — captured by asking for 2026-12-01, far enough ahead that no auction
+has cleared.
 
-Note the namespace differs from the publication document:
+HTTP **200** with an `Acknowledgement_MarketDocument` and reason code 999, not
+a 404. An empty result therefore looks like success at the transport layer,
+which is why the flow checks for it explicitly before mapping.
+
+The namespace differs from the publication document:
 
 ```
-publication     urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:0
+publication     urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3
 acknowledgement urn:iec62325.351:tc57wg16:451-1:acknowledgementdocument:7:0
 ```
 
-To capture a real one, request a date far enough ahead that no auction has
-cleared.
+## Still to capture
+
+**25 October 2026** — the DST changeover, a 25-hour local day. Prices publish
+one day ahead, so this must be captured on the 24th. It is the best edge case
+this domain offers and it comes once a year.

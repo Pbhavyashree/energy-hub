@@ -290,3 +290,81 @@ distrusting completely. Every test written against the synthetic document
 passed while the mapper would have failed against production — the fixture
 and the code shared the same wrong assumptions, so they agreed with each
 other and not with reality.
+
+---
+
+# The stream bug — RESOLVED 2026-09-24
+
+The "reading the payload more than once silently truncates it" entry above is
+closed. Recording the fix and the two wrong turns, because the wrong turns
+cost more than the fix.
+
+## The fix
+
+Take the response body as **text**, not XML:
+
+```xml
+<http:request ... outputMimeType="text/plain" outputEncoding="UTF-8">
+```
+
+Then materialise it once and parse that string independently at each check:
+
+```xml
+<set-variable variableName="rawXml" value="#[payload as String]"/>
+...
+read(vars.rawXml, 'application/xml')
+```
+
+Nothing parses the body on arrival, so there is no stream to exhaust.
+
+## What did not work
+
+**`write(payload, 'application/xml')`** — the obvious way to serialise the
+body once. DataWeave's XML writer refuses the value that `readUrl` and the
+HTTP connector produce:
+
+```
+Trying to output non-whitespace characters outside main element tree
+(in prolog or epilog), while writing Xml
+```
+
+This was first blamed on the explanatory `<!-- -->` comments in the synthetic
+fixtures, which sat before the root element. The comments were removed and the
+error persisted, and it persisted again with real captures that never had
+comments. The writer simply will not round-trip that value. Do not try this
+again.
+
+## Why it took so long
+
+Four hypotheses were tested before the right one, and three were wrong:
+
+1. `$` binding inside a nested lambda — plausible, since a similar error had
+   just been hit with `some`. Fixed it; nothing changed.
+2. Type annotations on document-shaped parameters — plausible, since that bug
+   was real elsewhere in this project. Removed them; nothing changed.
+3. The XML reader collapsing repeated siblings — plausible, since a probe
+   reported one `<Point>` instead of 24. Wrong reading of the evidence: the
+   probe had traversed the payload earlier in the same expression.
+
+Each hypothesis was tested in the DataWeave playground, where the code worked
+correctly every time — because the playground never reproduced the condition
+that mattered, which was repeated traversal of a live stream.
+
+The probe that settled it ran **inside Mule** and compared five navigations
+over the same document. All five returned 1. That ruled out navigation and
+pointed at the document itself, and a variant that read the file fresh in a
+single expression returned 24.
+
+**Measure inside the failing environment early.** Reasoning from symptoms in a
+working environment produced three confident, wrong answers in a row.
+
+## Why it mattered
+
+The symptom was not a crash. It was 96 well-formed intervals, correct
+timestamps, internally consistent per-kWh conversion, and every price equal to
+the last `<Point>` in the document — a flat price curve that no schema
+validation would reject and that would have made the alerting layer
+permanently silent.
+
+Only assertions on actual values caught it. Every structural assertion passed
+throughout.

@@ -5,15 +5,21 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Lets you trigger a run by hand from the Actions tab, which is useful
-  # when an upstream contract changes and you want to confirm nothing
-  # depended on it.
   workflow_dispatch:
 
 jobs:
-  awattar-sys-api:
-    name: aWATTar system API
+  test:
+    name: ${{ matrix.module }}
     runs-on: ubuntu-latest
+
+    strategy:
+      # Both modules are reported even when one fails, so a broken change in
+      # one system API does not hide the state of the other.
+      fail-fast: false
+      matrix:
+        module:
+          - sys-api-awattar
+          - sys-api-entsoe
 
     steps:
       - uses: actions/checkout@v4
@@ -23,35 +29,30 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          # Caches ~/.m2 keyed on the pom. The first run pulls the whole
-          # Mule runtime dependency tree and takes several minutes; later
-          # runs reuse it.
           cache: maven
 
+      # No credentials needed: config.yaml ships a placeholder token and every
+      # test mocks the upstream, so the suite never reaches the network.
       - name: Run MUnit tests
-        working-directory: sys-api-awattar
+        working-directory: ${{ matrix.module }}
         run: mvn --batch-mode --no-transfer-progress clean test
 
       - name: Package deployable artifact
-        working-directory: sys-api-awattar
+        working-directory: ${{ matrix.module }}
         run: mvn --batch-mode --no-transfer-progress package -DskipTests
 
-      # Keeps the built jar for 7 days so a green run can be deployed
-      # without rebuilding locally.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: awattar-sys-api
-          path: sys-api-awattar/target/*-mule-application.jar
+          name: ${{ matrix.module }}
+          path: ${{ matrix.module }}/target/*-mule-application.jar
           retention-days: 7
 
-      # MUnit writes its reports here regardless of outcome, so this runs
-      # even when tests fail - which is exactly when you want them.
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: munit-reports
-          path: sys-api-awattar/target/munit-reports/
+          name: munit-reports-${{ matrix.module }}
+          path: ${{ matrix.module }}/target/munit-reports/
           retention-days: 7
           if-no-files-found: ignore
