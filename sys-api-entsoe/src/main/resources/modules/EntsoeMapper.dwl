@@ -4,35 +4,36 @@
  * ENTSO-E Publication_MarketDocument (A44, day-ahead prices)
  * -> canonical PricePoint[].
  *
- * Namespaces confirmed against the Transparency Platform RESTful API
- * user guide:
- *   publication     urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:0
+ * Rewritten against a REAL captured response (DE-LU, 2026-09-25).
+ * The previous version was built from a synthetic fixture and got four
+ * of five structural assumptions wrong:
+ *
+ *   assumed                          actual
+ *   ---------------------------------------------------------------
+ *   namespace ...publicationdocument:7:0   ...:7:3
+ *   curveType A01 (all positions present)  A03 (sparse)
+ *   PT60M, 24 points                       PT15M, 96 positions
+ *   one TimeSeries                         two
+ *   timestamps without seconds             confirmed correct
+ *
+ * Namespaces, both verified against live responses:
+ *   publication     urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3
  *   acknowledgement urn:iec62325.351:tc57wg16:451-1:acknowledgementdocument:7:0
  *
- * Developed against a synthetic fixture built from the documented
- * structure. Revalidate against a real response before trusting it.
- *
- * NO TYPE ANNOTATIONS on document-shaped parameters or their return
- * types. With `mapPeriod(period: Object)` and
- * `expandPositions(declared: Array, ...): Array<Object>` in place, this
- * mapper silently assigned the LAST price in the series to every
- * interval: elements reaching expandPositions were Any-typed, so
- * `d.position <= slot` stopped discriminating, `applicable` was never
- * filtered, and `applicable[-1]` was always the final point.
- *
- * No error, no warning - just a flat 24-hour price curve. Each function
- * tested correctly in isolation; only the composition failed. Scalar
- * parameters (raw: String, perMWh: Number) annotate safely and are
- * kept.
+ * No type annotations on document-shaped parameters - see NOTES.md.
  */
 
-ns pub urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:0
+ns pub urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3
 ns ack urn:iec62325.351:tc57wg16:451-1:acknowledgementdocument:7:0
 
+// ---------------------------------------------------------------
+// Timestamps
+// ---------------------------------------------------------------
+
 /**
- * The guide documents timeInterval as yyyy-MM-ddTHH:mmZ - no seconds -
- * which DataWeave will not coerce to DateTime directly. Tolerates both
- * forms, since a real response may well include them.
+ * ENTSO-E writes timeInterval as yyyy-MM-ddTHH:mmZ - no seconds -
+ * which DataWeave will not coerce to DateTime directly. Verified
+ * against live data. Tolerates both forms in case that ever changes.
  */
 fun normaliseInstant(raw: String): String = do {
     var trimmed = trim(raw)
@@ -57,19 +58,65 @@ fun resolutionMinutes(resolution: String): Number =
 
 fun toKWh(perMWh: Number): Number = round((perMWh / 1000) * 100000) / 100000
 
+// ---------------------------------------------------------------
+// Picking the right auction
+// ---------------------------------------------------------------
+
+/**
+ * A44 for DE-LU returns TWO TimeSeries covering the identical interval
+ * at the same resolution, distinguished only by
+ * classificationSequence_AttributeInstanceComponent.position:
+ *
+ *   sequence 1 - the primary day-ahead auction (EPEX SPOT)
+ *   sequence 2 - the separate EXAA auction held at 10:15 CET
+ *
+ * Flattening both yields two prices for every interval. Sequence 1 is
+ * the day-ahead price.
+ *
+ * Verified, not assumed: for 2026-09-25 the mean of sequence 1's first
+ * four quarter-hours (196.99, 184.40, 175.79, 170.59) is 181.9425, and
+ * aWATTar - an independent publisher of the same EPEX auction - reports
+ * 181.94 for that hour. Sequence 2 opens at 192.55 and does not match.
+ *
+ * Document order is NOT sequence order: in the captured response the
+ * FIRST TimeSeries carries sequence 2. Taking [0] would pick EXAA.
+ */
+fun sequenceOf(ts) =
+    ts.pub#'classificationSequence_AttributeInstanceComponent.position'
+
+/**
+ * Filters to sequence 1 when the document declares sequences at all.
+ * Zones other than DE-LU may publish a single series with no
+ * classification element; those are returned untouched rather than
+ * filtered away to nothing.
+ */
+fun primarySeries(doc) = do {
+    var all = (doc.pub#Publication_MarketDocument.*pub#TimeSeries) default []
+    var classified = all filter ((ts) -> sequenceOf(ts) != null)
+    ---
+    if (isEmpty(classified))
+        all
+    else
+        classified filter ((ts) -> (sequenceOf(ts) as Number) == 1)
+}
+
+// ---------------------------------------------------------------
+// Position -> timestamp
+// ---------------------------------------------------------------
+
 /**
  * ENTSO-E does not timestamp prices. Each Point carries a position
- * (1, 2, 3 ...) and the real instant is
+ * (1, 2, 3 ...) and the instant is
  *     periodStart + (position - 1) * resolution
  *
- * curveType A01 ("sequential fixed size block") means every position is
- * present, and the guide states A44 uses A01. A03 ("variable sized
- * block") omits repeated values, so a declared position holds until the
- * next one appears.
+ * curveType is A03 ("variable sized block"), CONFIRMED against live
+ * data: the captured response omits positions 7 and 10 in one series,
+ * meaning those intervals repeat the previous declared price. This
+ * expansion is therefore essential, not defensive - mapping points
+ * one-to-one would silently produce a short, misaligned day.
  *
- * Expansion is defensive: with a complete A01 series it is the identity,
- * so it costs nothing and covers the case where that assumption is
- * wrong.
+ * `filled` marks an interval that had no declared Point, so the flow
+ * can report how much holding-forward actually happened.
  */
 fun expandPositions(declared, intervalCount) =
     (1 to intervalCount) map ((slot) -> do {
@@ -77,7 +124,8 @@ fun expandPositions(declared, intervalCount) =
         ---
         {
             slot: slot,
-            price: (applicable[-1] default declared[0]).price
+            price: (applicable[-1] default declared[0]).price,
+            filled: sizeOf(declared filter ((d) -> d.position == slot)) == 0
         }
     })
 
@@ -85,15 +133,14 @@ fun mapPeriod(period) = do {
     var start = toInstant(period.pub#timeInterval.pub#start as String)
     var end = toInstant(period.pub#timeInterval.pub#end as String)
     var stepMins = resolutionMinutes(period.pub#resolution as String)
-    // Derived from the bounds rather than assumed to be 24, so the
-    // 25-hour DST day in late October needs no special case.
+    // Derived from the bounds, not assumed. A PT15M day is 96 intervals,
+    // and the 25-hour DST day in late October needs no special case.
     var intervalCount = floor(((end as Number) - (start as Number)) / (stepMins * 60))
     var declared = (period.*pub#Point default []) map {
         position: $.pub#position as Number,
         // The dot is part of the element name, so the selector must be
-        // quoted. Unquoted it parses as a nested selector and silently
-        // returns null.
-        price: $.pub#"price.amount" as Number
+        // quoted. Unquoted it parses as a nested selector and returns null.
+        price: $.pub#'price.amount' as Number
     }
     ---
     expandPositions(declared, intervalCount) map ((p) -> do {
@@ -113,15 +160,19 @@ fun mapPeriod(period) = do {
 
 fun toCanonical(doc) =
     flatten(
-        ((doc.pub#Publication_MarketDocument.*pub#TimeSeries) default []) map ((ts) ->
+        primarySeries(doc) map ((ts) ->
             flatten(((ts.*pub#Period) default []) map ((period) -> mapPeriod(period)))
         )
     ) orderBy $.startsAt
 
+// ---------------------------------------------------------------
+// Diagnostics for the flow to act on
+// ---------------------------------------------------------------
+
 /**
  * ENTSO-E returns an Acknowledgement document for "no matching data
- * found" (reason code 999) rather than a 404, so an empty result looks
- * like a success at the HTTP layer.
+ * found" (reason code 999) with HTTP 200, not a 404, so an empty result
+ * looks like success at the transport layer.
  */
 fun isAcknowledgement(doc) =
     doc.ack#Acknowledgement_MarketDocument != null
@@ -132,9 +183,24 @@ fun acknowledgementReason(doc) = {
 }
 
 /**
- * Any curve type other than A01 means the expansion above is
- * load-bearing rather than decorative. Worth a WARN, not a failure.
+ * Reported so a change upstream becomes visible rather than silently
+ * working. A01 would mean positions are dense and the expansion above
+ * is a no-op; A03 is what live data actually uses.
  */
 fun curveTypes(doc) =
-    (((doc.pub#Publication_MarketDocument.*pub#TimeSeries) default [])
-        map ($.pub#curveType default "ABSENT")) distinctBy $
+    (primarySeries(doc) map ($.pub#curveType default "ABSENT")) distinctBy $
+
+/**
+ * How many series the document carried, and which sequences. Useful in
+ * a log line: a day where this stops being [2 series, sequences 1 and 2]
+ * is worth noticing.
+ */
+fun seriesSummary(doc) = do {
+    var all = (doc.pub#Publication_MarketDocument.*pub#TimeSeries) default []
+    ---
+    {
+        total: sizeOf(all),
+        sequences: (all map (sequenceOf($) default "ABSENT")) distinctBy $,
+        selected: sizeOf(primarySeries(doc))
+    }
+}

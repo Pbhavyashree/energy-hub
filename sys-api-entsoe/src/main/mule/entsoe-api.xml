@@ -106,8 +106,8 @@
                       value="#[attributes.queryParams.periodEnd default ((now() + |P1D|) >> 'UTC')]"/>
 
         <!--
-          Bidding zone -> EIC code. VERIFY any zone other than DE_LU
-          against the ENTSO-E area list before trusting it.
+          Bidding zone -> EIC code. DE_LU is verified against live data;
+          VERIFY the others against the ENTSO-E area list before use.
         -->
         <set-variable variableName="eic" value="#[%dw 2.0
             output application/java
@@ -125,10 +125,32 @@
                 message="#['Fetching ENTSO-E A44 zone=' ++ vars.biddingZone
                           ++ ' corr=' ++ (correlationId default '-')]"/>
 
+        <!--
+          outputMimeType="text/plain" is load-bearing.
+
+          This flow inspects the document three times - Acknowledgement?
+          which curveType? then the mapping - and the response body is a
+          non-repeatable stream. Left as application/xml, the first
+          traversal consumes it and the later ones see a remnant: the
+          mapper then returned 96 well-formed intervals with correct
+          timestamps and every price equal to the LAST <Point> in the
+          document. No error, no warning, a flat price curve.
+
+          Taking the body as TEXT means nothing parses it on arrival. It
+          is materialised once into vars.rawXml, and each check parses
+          that string independently.
+
+          Serialising back out with write(payload, 'application/xml') was
+          tried first and does not work: DataWeave's XML writer rejects
+          the value readUrl/HTTP produces with "Trying to output
+          non-whitespace characters outside main element tree".
+        -->
         <http:request config-ref="entsoe-upstream"
                       method="GET"
                       path="/api"
-                      responseTimeout="${entsoe.timeoutMs}">
+                      responseTimeout="${entsoe.timeoutMs}"
+                      outputMimeType="text/plain"
+                      outputEncoding="UTF-8">
             <http:query-params><![CDATA[#[%dw 2.0
                 output application/java
                 fun entsoeInstant(d) =
@@ -144,22 +166,7 @@
                 }]]]></http:query-params>
         </http:request>
 
-        <!--
-          ================= READ THE BODY EXACTLY ONCE =================
-
-          The response payload is a non-repeatable stream. This flow needs
-          to inspect the document three times - is it an Acknowledgement,
-          what curveType does it use, and finally the mapping - and each
-          traversal consumes more of the stream. The symptom is vicious:
-          no error, no warning, a well-formed response with correct
-          timestamps, and every price set to the LAST <Point> in the
-          document, because that is all the exhausted stream still yields.
-
-          Serialising to text once makes every later parse independent.
-          Do not replace vars.rawXml with payload in the expressions
-          below without re-reading this comment.
-        -->
-        <set-variable variableName="rawXml" value="#[write(payload, 'application/xml')]"/>
+        <set-variable variableName="rawXml" value="#[payload as String]"/>
 
         <set-variable variableName="isAck" value="#[%dw 2.0
             import isAcknowledgement from modules::EntsoeMapper
@@ -184,22 +191,28 @@
         </choice>
 
         <!--
-          The guide states A44 uses curveType A01, meaning every position
-          is present. The mapper expands positions defensively either way;
-          this logs when that assumption does not hold.
+          Live data uses curveType A03 and returns two TimeSeries, one per
+          auction sequence. Both are logged so a change upstream - a third
+          series, a switch to A01 - shows up in the logs rather than
+          quietly altering the output.
         -->
-        <set-variable variableName="curves" value="#[%dw 2.0
-            import curveTypes from modules::EntsoeMapper
+        <set-variable variableName="series" value="#[%dw 2.0
+            import seriesSummary from modules::EntsoeMapper
             output application/java
             ---
-            curveTypes(read(vars.rawXml, 'application/xml'))]"/>
+            seriesSummary(read(vars.rawXml, 'application/xml'))]"/>
+
+        <logger level="INFO"
+                message="#['ENTSO-E series total=' ++ (vars.series.total as String)
+                          ++ ' sequences=' ++ write(vars.series.sequences, 'application/json')
+                          ++ ' selected=' ++ (vars.series.selected as String)]"/>
 
         <choice>
-            <when expression="#[vars.curves != ['A01']]">
+            <when expression="#[vars.series.selected != 1]">
                 <logger level="WARN"
-                        message="#['Unexpected curveType(s) from ENTSO-E: '
-                                  ++ write(vars.curves, 'application/json')
-                                  ++ ' - sparse position expansion is now load-bearing']"/>
+                        message="#['Expected exactly one primary (sequence 1) series, got '
+                                  ++ (vars.series.selected as String)
+                                  ++ ' - prices may be doubled or missing']"/>
             </when>
         </choice>
 

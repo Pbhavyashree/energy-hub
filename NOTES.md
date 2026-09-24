@@ -202,3 +202,91 @@ to `samples/README.md` and the fixtures cleaned, but the suite is still red:
 
 The aWATTar module is unaffected and stays green; CI only builds that module
 so far.
+
+---
+
+# What real ENTSO-E data looked like
+
+Credentials arrived 2026-09-24. Captured DE-LU day-ahead prices for delivery
+day 2026-09-25 and compared against the synthetic fixture the mapper had been
+built on.
+
+Four of five structural assumptions were wrong.
+
+| Assumed (from the archived user guide) | Actual |
+|---|---|
+| namespace `...publicationdocument:7:0` | **`:7:3`** |
+| `curveType` A01 — every position present | **A03** — sparse, repeated values omitted |
+| `PT60M`, 24 points | **`PT15M`**, 96 positions |
+| one `TimeSeries` | **two** |
+| `timeInterval` timestamps without seconds | confirmed correct |
+
+The acknowledgement document's namespace (`...acknowledgementdocument:7:0`)
+and reason code 999 were right.
+
+## Every namespaced selector would have returned nothing
+
+With `7:0` declared against a `7:3` document, `pub#TimeSeries` and everything
+below it resolves to null. No error — an empty result. This is the second
+time on this project that a wrong assumption produced silence rather than a
+failure.
+
+## Two TimeSeries, and document order is not sequence order
+
+A44 for DE-LU returns two series covering identical intervals at identical
+resolution, distinguished only by
+`classificationSequence_AttributeInstanceComponent.position`:
+
+- **sequence 1** — the primary day-ahead auction (EPEX SPOT)
+- **sequence 2** — the separate EXAA auction held at 10:15 CET
+
+Flattening both gives two prices for every interval. And the trap: in the
+captured response the **first** TimeSeries in document order carries sequence
+**2**, so `TimeSeries[0]` picks EXAA. The filter must be on the classification
+field.
+
+## Verified against an independent publisher
+
+The sequence explanation came from a GitHub issue thread, not official
+documentation, so it was checked rather than trusted:
+
+```
+ENTSO-E sequence 1, first four quarter-hours of 2026-09-25:
+  196.99 + 184.40 + 175.79 + 170.59 = 727.77 ÷ 4 = 181.9425
+
+aWATTar, same hour, hourly resolution:            181.94
+```
+
+An exact match. Sequence 2 opens at 192.55 and does not agree. aWATTar
+publishes the same EPEX auction, so this confirms both the auction choice and
+the position arithmetic against a source that shares no code with this
+project.
+
+That check only existed because the second upstream was built first. It is
+now an assertion in the test suite rather than a one-off.
+
+## A03 confirmed in the data
+
+The captured sequence-2 series omits positions 7 and 10 — those intervals
+repeat the preceding price. The sparse expansion written as insurance against
+a documented A01 turns out to be the real code path.
+
+## Consequence for the process layer
+
+**The two upstreams are now at different resolutions.** ENTSO-E publishes
+quarter-hourly, aWATTar hourly, and an aWATTar hour is the mean of four
+ENTSO-E quarters.
+
+`mergeSources` as sketched matches points on `startsAt` equality, which would
+align only one quarter in four and treat the other three as gaps to fill.
+That design needs revisiting before the process API is built — either
+downsample ENTSO-E to hourly, upsample aWATTar, or keep both resolutions and
+let the consumer choose.
+
+## Lesson
+
+Synthetic fixtures are worth building to get logic moving, and worth
+distrusting completely. Every test written against the synthetic document
+passed while the mapper would have failed against production — the fixture
+and the code shared the same wrong assumptions, so they agreed with each
+other and not with reality.
