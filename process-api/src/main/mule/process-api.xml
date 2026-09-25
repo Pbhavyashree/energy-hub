@@ -1,25 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mule xmlns="http://www.mulesoft.org/schema/mule/core"
       xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:schemaLocation="
         http://www.mulesoft.org/schema/mule/core
         http://www.mulesoft.org/schema/mule/core/current/mule.xsd
         http://www.mulesoft.org/schema/mule/http
-        http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
-
-    <!--
-      Process API - configuration only at this stage.
-
-      The orchestration flows come next; this file exists so the
-      application deploys and the PriceLogic test suite can run against
-      the canonical fixtures captured from the live system APIs.
-
-      Note the Host header lesson from the ENTSO-E module does not apply
-      to these two request configs: they talk to localhost on
-      non-default ports, where host:port in the Host header is correct
-      and expected.
-    -->
+        http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit
+        http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd">
 
     <configuration-properties file="config.yaml"/>
 
@@ -27,14 +17,368 @@
         <http:listener-connection host="0.0.0.0" port="${api.port}"/>
     </http:listener-config>
 
+    <!--
+      The Host-header workaround from the ENTSO-E module does NOT apply
+      here: these calls go to localhost on non-default ports, where
+      host:port in the Host header is correct.
+    -->
     <http:request-config name="entsoe-sys-api">
-        <http:request-connection host="${sys.entsoe.host}"
-                                port="${sys.entsoe.port}"/>
+        <http:request-connection host="${sys.entsoe.host}" port="${sys.entsoe.port}"/>
     </http:request-config>
 
     <http:request-config name="awattar-sys-api">
-        <http:request-connection host="${sys.awattar.host}"
-                                port="${sys.awattar.port}"/>
+        <http:request-connection host="${sys.awattar.host}" port="${sys.awattar.port}"/>
     </http:request-config>
+
+    <apikit:config name="process-config"
+                   api="api/energy-process-api.raml"
+                   outboundHeadersMapName="outboundHeaders"
+                   httpStatusVarName="httpStatus"/>
+
+    <!-- ============================================================
+         Main flow
+         ============================================================ -->
+
+    <flow name="process-main">
+        <http:listener config-ref="process-httpListener" path="/api/prc/energy/v1/*">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:error-response>
+        </http:listener>
+
+        <apikit:router config-ref="process-config"/>
+
+        <error-handler>
+            <on-error-propagate type="APIKIT:BAD_REQUEST">
+                <set-variable variableName="httpStatus" value="400"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_FOUND">
+                <set-variable variableName="httpStatus" value="404"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:METHOD_NOT_ALLOWED">
+                <set-variable variableName="httpStatus" value="405"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+
+            <on-error-propagate type="ENERGY:NO_DATA">
+                <set-variable variableName="httpStatus" value="404"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+            <on-error-propagate type="ENERGY:UPSTREAM_UNAVAILABLE">
+                <set-variable variableName="httpStatus" value="502"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+
+            <on-error-propagate type="MULE:TIMEOUT, HTTP:TIMEOUT">
+                <set-variable variableName="httpStatus" value="504"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+            <on-error-propagate type="ANY">
+                <set-variable variableName="httpStatus" value="500"/>
+                <flow-ref name="build-api-error"/>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <!-- ============================================================
+         APIkit routes here. Each flow stays thin.
+         ============================================================ -->
+
+    <flow name="get:\prices:process-config">
+        <flow-ref name="collect-series"/>
+        <set-payload value="#[%dw 2.0
+            output application/json
+            ---
+            vars.series]"/>
+    </flow>
+
+    <flow name="get:\prices\current:process-config">
+        <flow-ref name="collect-series"/>
+        <set-payload value="#[%dw 2.0
+            import currentPoint from modules::PriceLogic
+            output application/java
+            ---
+            currentPoint(vars.series.points, now() >> 'UTC')]"/>
+
+        <choice>
+            <when expression="#[payload == null]">
+                <raise-error type="ENERGY:NO_DATA"
+                             description="No published interval covers the current instant."/>
+            </when>
+        </choice>
+
+        <set-payload value="#[output application/json --- payload]"/>
+    </flow>
+
+    <flow name="get:\prices\cheapest-window:process-config">
+        <set-variable variableName="hours"
+                      value="#[(attributes.queryParams.hours default '4') as Number]"/>
+        <set-variable variableName="notBefore"
+                      value="#[if (attributes.queryParams.notBefore != null)
+                                 (attributes.queryParams.notBefore as DateTime)
+                               else null]"/>
+
+        <flow-ref name="collect-series"/>
+
+        <set-payload value="#[%dw 2.0
+            import cheapestWindow from modules::PriceLogic
+            output application/java
+            ---
+            cheapestWindow(vars.series.points, vars.hours, vars.notBefore)]"/>
+
+        <choice>
+            <when expression="#[payload == null]">
+                <!--
+                  Null means the series was shorter than the window, or
+                  carried mixed resolutions. Either way the honest answer
+                  is "no", not a window computed from part of the data.
+                -->
+                <raise-error type="ENERGY:NO_DATA"
+                             description="Not enough published intervals for the requested window."/>
+            </when>
+        </choice>
+
+        <set-payload value="#[output application/json --- payload]"/>
+    </flow>
+
+    <flow name="get:\health:process-config">
+        <!--
+          Liveness only. It does not call the upstreams on purpose: a
+          health check that fans out to its dependencies turns one slow
+          upstream into a failing health check.
+        -->
+        <set-payload value="#[%dw 2.0
+            output application/json
+            ---
+            {
+              status: 'UP',
+              upstreams: [
+                { name: 'ENTSOE',  role: 'PRIMARY',
+                  endpoint: p('sys.entsoe.host') ++ ':' ++ p('sys.entsoe.port') },
+                { name: 'AWATTAR', role: 'FALLBACK',
+                  endpoint: p('sys.awattar.host') ++ ':' ++ p('sys.awattar.port') }
+              ]
+            }]"/>
+    </flow>
+
+    <!-- ============================================================
+         Orchestration
+         ============================================================ -->
+
+    <sub-flow name="collect-series">
+        <set-variable variableName="biddingZone"
+                      value="#[attributes.queryParams.biddingZone default 'DE_LU']"/>
+
+        <!--
+          Default period is the current DELIVERY DAY IN BERLIN, not UTC.
+          A delivery day is local: midnight-to-midnight Berlin is 22:00Z
+          to 22:00Z in summer, so defaulting to UTC midnight would
+          straddle two delivery days and return half of each.
+
+          Built by formatting rather than coercing: `as Date as DateTime`
+          is not a valid conversion and fails at runtime with
+          "Cannot coerce Date to DateTime". The offset is taken from the
+          current instant so it is correct on both sides of the DST
+          changeover.
+        -->
+        <set-variable variableName="periodStart" value="#[%dw 2.0
+            output application/java
+            var berlinNow = now() >> 'Europe/Berlin'
+            ---
+            attributes.queryParams.periodStart default
+                ((berlinNow as String {format: 'yyyy-MM-dd'}
+                  ++ 'T00:00:00'
+                  ++ (berlinNow as String {format: 'XXX'})) as DateTime)]"/>
+
+        <set-variable variableName="periodEnd" value="#[%dw 2.0
+            output application/java
+            ---
+            attributes.queryParams.periodEnd default
+                ((vars.periodStart as DateTime) + |P1D|)]"/>
+
+        <!--
+          Both upstreams are asked in parallel, but they are NOT merged.
+          ENTSO-E is authoritative at quarter-hourly resolution; aWATTar
+          is hourly and answers only if ENTSO-E gave nothing. Interleaving
+          them would either discard the 15-minute detail where negative
+          price spikes live, or fabricate detail by claiming each quarter
+          equals the hourly mean.
+
+          aWATTar is still fetched even when ENTSO-E succeeds, because the
+          agreement check below is the cheapest monitoring available: both
+          publish the same auction, so they must agree.
+
+          Each route carries its own try/on-error-continue. Without it,
+          scatter-gather raises on any route failure and one flaky
+          upstream takes down a request the other could have served.
+        -->
+        <scatter-gather timeout="${upstream.budgetMs}">
+            <route>
+                <try>
+                    <flow-ref name="fetch-entsoe"/>
+                    <error-handler>
+                        <on-error-continue logException="true">
+                            <logger level="WARN"
+                                    message="#['ENTSOE route degraded corr='
+                                              ++ (correlationId default '-')
+                                              ++ ' err=' ++ (error.description default '-')]"/>
+                            <set-payload value="#[[]]"/>
+                        </on-error-continue>
+                    </error-handler>
+                </try>
+            </route>
+            <route>
+                <try>
+                    <flow-ref name="fetch-awattar"/>
+                    <error-handler>
+                        <on-error-continue logException="true">
+                            <logger level="WARN"
+                                    message="#['AWATTAR route degraded corr='
+                                              ++ (correlationId default '-')
+                                              ++ ' err=' ++ (error.description default '-')]"/>
+                            <set-payload value="#[[]]"/>
+                        </on-error-continue>
+                    </error-handler>
+                </try>
+            </route>
+        </scatter-gather>
+
+        <set-variable variableName="entsoePoints" value="#[payload['0'].payload default []]"/>
+        <set-variable variableName="awattarPoints" value="#[payload['1'].payload default []]"/>
+
+        <!--
+          Cross-source agreement. Both feeds publish the same EPEX
+          auction, so every aWATTar hour must equal the mean of the four
+          ENTSO-E quarters inside it. A divergence means one feed is
+          stale or the wrong auction sequence is being selected - worth a
+          WARN, not worth failing a request, because the primary series
+          is still perfectly usable.
+        -->
+        <choice>
+            <when expression="#[!isEmpty(vars.entsoePoints) and !isEmpty(vars.awattarPoints)]">
+                <set-variable variableName="divergences" value="#[%dw 2.0
+                    import crossCheck from modules::PriceLogic
+                    output application/java
+                    ---
+                    crossCheck(vars.entsoePoints, vars.awattarPoints,
+                               p('crosscheck.toleranceKWh') as Number)]"/>
+
+                <choice>
+                    <when expression="#[sizeOf(vars.divergences) > 0]">
+                        <logger level="WARN"
+                                message="#['Upstreams disagree on '
+                                          ++ sizeOf(vars.divergences)
+                                          ++ ' hour(s): '
+                                          ++ write(vars.divergences, 'application/json')]"/>
+                    </when>
+                    <otherwise>
+                        <logger level="INFO"
+                                message="#['Cross-check OK: '
+                                          ++ sizeOf(vars.awattarPoints)
+                                          ++ ' hours agree with their quarter-hours']"/>
+                    </otherwise>
+                </choice>
+            </when>
+        </choice>
+
+        <set-variable variableName="selected" value="#[%dw 2.0
+            import selectSeries from modules::PriceLogic
+            output application/java
+            ---
+            selectSeries(vars.entsoePoints, vars.awattarPoints)]"/>
+
+        <choice>
+            <when expression="#[isEmpty(vars.selected.points)]">
+                <raise-error type="ENERGY:UPSTREAM_UNAVAILABLE"
+                             description="Neither upstream returned usable price data."/>
+            </when>
+        </choice>
+
+        <set-variable variableName="series" value="#[%dw 2.0
+            import seriesSummary from modules::PriceLogic
+            output application/java
+            ---
+            do {
+              var s = seriesSummary(vars.selected.points)
+              ---
+              {
+                biddingZone: vars.biddingZone,
+                retrievedAt: now() >> 'UTC',
+                degraded: vars.selected.degraded,
+                resolutionMinutes: s.resolutionMinutes,
+                source: s.sources[0],
+                points: vars.selected.points
+              }
+            }]"/>
+
+        <logger level="INFO"
+                message="#['Series selected source=' ++ (vars.series.source as String)
+                          ++ ' resolution=' ++ (vars.series.resolutionMinutes as String)
+                          ++ ' points=' ++ sizeOf(vars.series.points)
+                          ++ ' degraded=' ++ (vars.series.degraded as String)]"/>
+    </sub-flow>
+
+    <!-- ============================================================
+         Upstream calls
+         ============================================================ -->
+
+    <sub-flow name="fetch-entsoe">
+        <http:request config-ref="entsoe-sys-api"
+                      method="GET"
+                      path="/api/sys/entsoe/v1/day-ahead-prices"
+                      responseTimeout="${upstream.timeoutMs}">
+            <http:headers><![CDATA[#[{
+                'X-Correlation-Id': correlationId
+            }]]]></http:headers>
+            <http:query-params><![CDATA[#[{
+                biddingZone: vars.biddingZone,
+                periodStart: vars.periodStart as String,
+                periodEnd: vars.periodEnd as String
+            }]]]></http:query-params>
+        </http:request>
+    </sub-flow>
+
+    <sub-flow name="fetch-awattar">
+        <http:request config-ref="awattar-sys-api"
+                      method="GET"
+                      path="/api/sys/awattar/v1/marketdata"
+                      responseTimeout="${upstream.timeoutMs}">
+            <http:headers><![CDATA[#[{
+                'X-Correlation-Id': correlationId
+            }]]]></http:headers>
+            <http:query-params><![CDATA[#[{
+                from: vars.periodStart as String,
+                to: vars.periodEnd as String
+            }]]]></http:query-params>
+        </http:request>
+    </sub-flow>
+
+    <!-- ============================================================
+         One error shape, whatever went wrong
+         ============================================================ -->
+
+    <sub-flow name="build-api-error">
+        <logger level="WARN"
+                message="#['Returning ' ++ (vars.httpStatus default 500)
+                          ++ ' corr=' ++ (correlationId default '-')
+                          ++ ' type=' ++ (error.errorType.identifier default 'UNKNOWN')
+                          ++ ' msg=' ++ (error.description default '-')]"/>
+
+        <set-payload value="#[%dw 2.0
+            output application/json
+            ---
+            {
+              code: (error.errorType.identifier default 'INTERNAL_ERROR'),
+              message: (error.description default 'Unexpected failure.'),
+              correlationId: (correlationId default ''),
+              occurredAt: now() >> 'UTC'
+            }]"/>
+    </sub-flow>
 
 </mule>

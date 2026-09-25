@@ -10,10 +10,6 @@ usage: |
   never a copy, or the change will be silently overwritten on the next
   build.
 
-  System APIs are responsible for mapping their upstream's native
-  format (ENTSO-E XML, aWATTar JSON) into these shapes, so the process
-  and experience layers never see an upstream's vocabulary.
-
 types:
 
   BiddingZone:
@@ -37,8 +33,8 @@ types:
         type: integer
         enum: [15, 30, 60]
         description: |
-          Derived from the upstream rather than assumed. The German
-          market is moving toward 15-minute settlement.
+          Read from the upstream, never assumed. ENTSO-E publishes
+          quarter-hourly for DE-LU; aWATTar publishes hourly.
       pricePerMWh:
         type: number
         description: Wholesale price as published. Can be negative.
@@ -53,17 +49,17 @@ types:
         enum: [ENTSOE, AWATTAR, CACHE]
         description: |
           Which upstream this point came from. Part of the model on
-          purpose: when the process layer merges feeds or falls back to
-          stored data, the consumer can see where a number came from.
-          CACHE means both live upstreams failed.
+          purpose: the process layer never interleaves sources, so a
+          consumer can always tell which feed - and which resolution -
+          it is looking at.
     example:
-      startsAt: 2026-09-17T22:00:00Z
-      endsAt: 2026-09-17T23:00:00Z
-      resolutionMinutes: 60
-      pricePerMWh: 139.24
-      pricePerKWh: 0.13924
+      startsAt: 2026-09-24T22:00:00Z
+      endsAt: 2026-09-24T22:15:00Z
+      resolutionMinutes: 15
+      pricePerMWh: 196.99
+      pricePerKWh: 0.19699
       currency: EUR
-      source: AWATTAR
+      source: ENTSOE
 
   PriceSeries:
     type: object
@@ -72,10 +68,54 @@ types:
       retrievedAt: datetime
       degraded:
         type: boolean
-        description: True when at least one upstream was unavailable.
+        description: |
+          True when the primary upstream gave nothing and the response
+          comes from the fallback. The fallback publishes at a different
+          resolution, so this flag and the points' own
+          resolutionMinutes together tell the consumer what it has.
+      resolutionMinutes:
+        type: integer
+        description: The resolution of every point in this series.
+      source:
+        type: string
+        enum: [ENTSOE, AWATTAR, CACHE]
       points:
         type: PricePoint[]
         minItems: 0
+
+  CheapestWindow:
+    type: object
+    description: |
+      The contiguous block of intervals with the lowest mean price.
+      Computed in intervals, so it works at any resolution.
+    properties:
+      startsAt: datetime
+      endsAt: datetime
+      hours:
+        type: integer
+        description: The requested window length, in hours.
+      intervals:
+        type: integer
+        description: |
+          How many settlement intervals that came to - 16 for four hours
+          at PT15M, 4 at PT60M.
+      resolutionMinutes: integer
+      source:
+        type: string
+        enum: [ENTSOE, AWATTAR, CACHE]
+      meanPricePerKWh: number
+      savingVsDayMean:
+        type: number
+        description: Fraction below the day's mean price, 0..1.
+    example:
+      startsAt: 2026-09-25T11:00:00Z
+      endsAt: 2026-09-25T15:00:00Z
+      hours: 4
+      intervals: 16
+      resolutionMinutes: 15
+      source: ENTSOE
+      meanPricePerKWh: 0.00236
+      savingVsDayMean: 0.42
 
   ApiError:
     type: object
@@ -90,4 +130,4 @@ types:
       code: UPSTREAM_UNAVAILABLE
       message: No price source responded.
       correlationId: 9f2c1b7a-4e10-4d0e-8a6f-2c6b0d1e33aa
-      occurredAt: 2026-09-20T09:12:44Z
+      occurredAt: 2026-09-25T09:12:44Z

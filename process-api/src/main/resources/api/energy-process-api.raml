@@ -1,0 +1,160 @@
+#%RAML 1.0
+title: Energy Process API
+version: v1
+description: |
+  Orchestration over the two price system APIs.
+
+  Owns: source selection, the cheapest-window calculation, cross-source
+  agreement checking. Does not own upstream dialects - it speaks only
+  the canonical model - and does not shape responses for any particular
+  client, which is the experience layer's job.
+
+  SOURCE SELECTION. The two upstreams publish the same EPEX day-ahead
+  auction at different resolutions: ENTSO-E quarter-hourly, aWATTar
+  hourly, where an aWATTar hour is the mean of four ENTSO-E quarters.
+  They are never interleaved. ENTSO-E is primary at its native
+  resolution; aWATTar answers only when ENTSO-E gave nothing, and the
+  response is then marked `degraded`. Every response states its own
+  `resolutionMinutes` and `source`, so a consumer always knows what it
+  is holding.
+
+baseUri: http://{host}:{port}/api/prc/energy/{version}
+baseUriParameters:
+  host:
+    default: localhost
+  port:
+    default: "8090"
+mediaType: application/json
+
+uses:
+  energy: library/energy-types.raml
+
+traits:
+  correlated:
+    headers:
+      X-Correlation-Id?:
+        type: string
+        description: Propagated to both upstreams and into error responses.
+
+  failable:
+    responses:
+      502:
+        description: Neither upstream returned usable data.
+        body: energy.ApiError
+      504:
+        description: The upstreams did not answer within the budget.
+        body: energy.ApiError
+
+/prices:
+  description: Day-ahead prices for a bidding zone.
+  get:
+    is: [correlated, failable]
+    displayName: Get day-ahead prices
+    queryParameters:
+      biddingZone:
+        type: energy.BiddingZone
+        default: DE_LU
+        required: false
+      periodStart:
+        type: datetime
+        required: false
+        description: Inclusive. Defaults to the start of the current day.
+      periodEnd:
+        type: datetime
+        required: false
+        description: Exclusive. Defaults to 24 hours after periodStart.
+    responses:
+      200:
+        body: energy.PriceSeries
+
+  /current:
+    get:
+      is: [correlated, failable]
+      displayName: Get the price for the interval happening now
+      queryParameters:
+        biddingZone:
+          type: energy.BiddingZone
+          default: DE_LU
+          required: false
+      responses:
+        200:
+          body: energy.PricePoint
+        404:
+          description: No published interval covers the current instant.
+          body: energy.ApiError
+
+  /cheapest-window:
+    get:
+      is: [correlated, failable]
+      displayName: Find the cheapest contiguous block of hours
+      description: |
+        Computed in settlement intervals, so the answer is as granular as
+        the source allows: at quarter-hourly resolution a four-hour
+        window can begin at any quarter past the hour.
+      queryParameters:
+        biddingZone:
+          type: energy.BiddingZone
+          default: DE_LU
+          required: false
+        hours:
+          type: integer
+          minimum: 1
+          maximum: 12
+          default: 4
+          required: false
+        notBefore:
+          type: datetime
+          required: false
+          description: Ignore intervals starting before this instant.
+      responses:
+        200:
+          body: energy.CheapestWindow
+        404:
+          description: |
+            Fewer published intervals than the requested window, or a
+            series with mixed resolutions - refused rather than averaged.
+          body: energy.ApiError
+
+/health:
+  get:
+    displayName: Liveness
+    description: |
+      Liveness only: it reports that this application is running and
+      which upstreams it is configured against. It deliberately does NOT
+      call them - a health check that fans out to its dependencies turns
+      one slow upstream into a failing health check.
+
+      Upstream reachability becomes meaningful once the scheduled poll
+      and its persistence exist, and can be reported from recorded state
+      rather than a live call.
+    responses:
+      200:
+        body:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [UP]
+            upstreams:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: string
+                  role:
+                    type: string
+                    enum: [PRIMARY, FALLBACK]
+                  endpoint: string
+          # `example` belongs INSIDE body. As a sibling of body it is a
+          # response node property, which RAML 1.0 does not allow:
+          #   "Property 'example' not supported in a RAML 1.0 response node"
+          # MUnit deploys happily with the mistake; a packaged deploy does not.
+          example:
+            status: UP
+            upstreams:
+              - name: ENTSOE
+                role: PRIMARY
+                endpoint: localhost:8091
+              - name: AWATTAR
+                role: FALLBACK
+                endpoint: localhost:8092

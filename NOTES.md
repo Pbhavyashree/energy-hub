@@ -460,3 +460,103 @@ answering with JSON means something in front of it is doing the talking.
 The wire log writes full URIs, so the security token ends up in plain text in
 `logs/`. Turn the logger off and delete those logs when finished, and rotate
 the token if it was exposed.
+
+---
+
+# Process API
+
+Three applications now run together: two system APIs and the orchestration
+layer over them.
+
+## The resolution decision, and what it bought
+
+ENTSO-E publishes quarter-hourly, aWATTar hourly, and an aWATTar hour is the
+mean of four ENTSO-E quarters. Three ways to handle that:
+
+| Option | Why not |
+|---|---|
+| Downsample ENTSO-E to hourly | Throws away the 15-minute detail, which is exactly where negative-price spikes live. The alerting layer would miss the events it exists for. |
+| Upsample aWATTar to quarter-hourly | Fabricates detail: asserts each quarter equals the hourly mean, which is demonstrably false. |
+| **Never merge across resolutions** | Chosen. |
+
+ENTSO-E is primary at its native resolution; aWATTar answers only when
+ENTSO-E gave nothing, and the response is marked `degraded`. Every point
+already carries `source` and `resolutionMinutes`, so a mixed-resolution world
+is expressed rather than hidden.
+
+The first real response justified it:
+
+```json
+{ "startsAt": "2026-09-25T09:30:00Z",
+  "endsAt":   "2026-09-25T13:30:00Z",
+  "intervals": 16, "resolutionMinutes": 15,
+  "meanPricePerKWh": 0.05044, "savingVsDayMean": 0.714 }
+```
+
+09:30Z is **11:30 Berlin** — a window starting at half past the hour, which
+is only expressible at quarter-hourly resolution. Downsampling would have
+returned a different, slightly worse answer and no way to tell.
+
+`cheapestWindow` therefore works in INTERVALS, not hours: four hours is 16
+intervals at PT15M and 4 at PT60M, with no special case. Mixed resolutions
+return null rather than an average — refusing to guess is a feature, and
+there is a test for it.
+
+## The cross-check became monitoring
+
+The manual check used to decide which ENTSO-E auction sequence to select is
+now a runtime comparison. Both feeds publish the same EPEX auction, so every
+aWATTar hour must equal the mean of the four ENTSO-E quarters inside it:
+
+```
+Cross-check OK: 24 hours agree with their quarter-hours
+Series selected source=ENTSOE resolution=15 points=96 degraded=false
+```
+
+A divergence means one feed is stale or the wrong sequence is being picked.
+It logs a WARN and does not fail the request, because the primary series is
+still usable. aWATTar is fetched even when ENTSO-E succeeds purely so this
+check can run — the cheapest monitoring available, since it needs no extra
+dependency.
+
+## Four small things that cost a build each
+
+**Mule's XSD enforces child order inside `http:request`.** `headers` must come
+before `query-params`, and `response-validator` last. The error reads
+*"Invalid content ... One of {...response-validator} is expected"*, which means
+the element is valid but arrived too late, not that it is unknown.
+
+**RAML 1.0 parameters are required by default.** Giving one a `default:` does
+NOT make it optional — APIkit rejects the request before any default applies.
+Every optional parameter needs an explicit `required: false`.
+
+**`example` belongs inside `body`, not beside it.** As a sibling of `body` it
+is a response-node property, which RAML 1.0 forbids: *"Property 'example' not
+supported in a RAML 1.0 response node"*.
+
+**`as Date as DateTime` is not a conversion.** It fails at runtime with
+"Cannot coerce Date to DateTime". To get midnight of the current day, format
+the instant and parse it back:
+
+```dataweave
+var berlinNow = now() >> 'Europe/Berlin'
+---
+(berlinNow as String {format: 'yyyy-MM-dd'}
+ ++ 'T00:00:00'
+ ++ (berlinNow as String {format: 'XXX'})) as DateTime
+```
+
+Berlin rather than UTC on purpose: a delivery day is local, so a UTC-midnight
+window straddles two of them. Taking the offset from the current instant keeps
+it correct either side of the October changeover.
+
+## MUnit does not prove deployability
+
+Twice now a green `mvn test` has hidden a failure that only appeared on a
+packaged deploy — the RAML sitting at the classpath root instead of `api/`,
+and the misplaced `example` key. MUnit deploys the application, but evidently
+resolves the spec more leniently.
+
+**A passing test suite is not a deployment check.** Until there is a smoke
+test that deploys the packaged jar and hits an endpoint, `mvn test` green
+plus a manual deploy is the only honest verification.
