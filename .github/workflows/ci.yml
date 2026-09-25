@@ -20,6 +20,7 @@ jobs:
         module:
           - sys-api-awattar
           - sys-api-entsoe
+          - process-api
 
     steps:
       - uses: actions/checkout@v4
