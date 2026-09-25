@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core
+        http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http
+        http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+    <!--
+      Process API - configuration only at this stage.
+
+      The orchestration flows come next; this file exists so the
+      application deploys and the PriceLogic test suite can run against
+      the canonical fixtures captured from the live system APIs.
+
+      Note the Host header lesson from the ENTSO-E module does not apply
+      to these two request configs: they talk to localhost on
+      non-default ports, where host:port in the Host header is correct
+      and expected.
+    -->
+
+    <configuration-properties file="config.yaml"/>
+
+    <http:listener-config name="process-httpListener">
+        <http:listener-connection host="0.0.0.0" port="${api.port}"/>
+    </http:listener-config>
+
+    <http:request-config name="entsoe-sys-api">
+        <http:request-connection host="${sys.entsoe.host}"
+                                port="${sys.entsoe.port}"/>
+    </http:request-config>
+
+    <http:request-config name="awattar-sys-api">
+        <http:request-connection host="${sys.awattar.host}"
+                                port="${sys.awattar.port}"/>
+    </http:request-config>
+
+</mule>

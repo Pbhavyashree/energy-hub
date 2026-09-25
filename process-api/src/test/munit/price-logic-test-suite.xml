@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core
+        http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit
+        http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools
+        http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+    <munit:config name="price-logic-test-suite.xml"/>
+
+    <!--
+      Both fixtures are REAL canonical output, captured by calling the
+      running system APIs for delivery day 2026-09-25:
+
+        canonical-entsoe-quarterly.json  96 points, PT15M, EPEX sequence 1
+        canonical-awattar-hourly.json    24 points, hourly, same auction
+
+      No flows are exercised here - these call the module directly, so a
+      failure means the maths is wrong rather than the plumbing.
+    -->
+
+    <munit:test name="cheapest-four-hours-at-quarter-hourly-resolution">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import cheapestWindow from modules::PriceLogic
+                output application/java
+                var points = readUrl('classpath://samples/canonical-entsoe-quarterly.json',
+                                     'application/json')
+                ---
+                cheapestWindow(points, 4, null)]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload != null]"
+                                     is="#[MunitTools::equalTo(true)]"
+                                     message="A 96-point day is long enough for a 4-hour window."/>
+
+            <!-- Four hours at PT15M is 16 intervals, not 4. -->
+            <munit-tools:assert-that expression="#[payload.intervals]"
+                                     is="#[MunitTools::equalTo(16)]"
+                                     message="Window length must be computed from the resolution."/>
+            <munit-tools:assert-that expression="#[payload.resolutionMinutes]"
+                                     is="#[MunitTools::equalTo(15)]"/>
+            <munit-tools:assert-that expression="#[payload.source]"
+                                     is="#[MunitTools::equalTo('ENTSOE')]"/>
+
+            <!-- The window must actually span four hours. -->
+            <munit-tools:assert-that
+                expression="#[%dw 2.0 output application/java --- ((payload.endsAt as DateTime) as Number) - ((payload.startsAt as DateTime) as Number)]"
+                is="#[MunitTools::equalTo(14400)]"
+                message="Four hours is 14400 seconds from start to end."/>
+
+            <!-- The cheapest window cannot be dearer than the daily mean. -->
+            <munit-tools:assert-that expression="#[payload.savingVsDayMean >= 0]"
+                                     is="#[MunitTools::equalTo(true)]"
+                                     message="The cheapest window must be at or below the day's mean."/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="cheapest-four-hours-at-hourly-resolution"
+                description="The same function, a different resolution, no special case.">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import cheapestWindow from modules::PriceLogic
+                output application/java
+                var points = readUrl('classpath://samples/canonical-awattar-hourly.json',
+                                     'application/json')
+                ---
+                cheapestWindow(points, 4, null)]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.intervals]"
+                                     is="#[MunitTools::equalTo(4)]"/>
+            <munit-tools:assert-that expression="#[payload.resolutionMinutes]"
+                                     is="#[MunitTools::equalTo(60)]"/>
+            <munit-tools:assert-that expression="#[payload.source]"
+                                     is="#[MunitTools::equalTo('AWATTAR')]"/>
+            <munit-tools:assert-that
+                expression="#[%dw 2.0 output application/java --- ((payload.endsAt as DateTime) as Number) - ((payload.startsAt as DateTime) as Number)]"
+                is="#[MunitTools::equalTo(14400)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="the-two-upstreams-agree-on-the-same-auction"
+                description="Cross-source validation, as a test.">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import crossCheck from modules::PriceLogic
+                output application/java
+                var quarterly = readUrl('classpath://samples/canonical-entsoe-quarterly.json',
+                                        'application/json')
+                var hourly = readUrl('classpath://samples/canonical-awattar-hourly.json',
+                                     'application/json')
+                ---
+                crossCheck(quarterly, hourly, 0.0001)]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <!--
+              Both feeds publish the same EPEX day-ahead auction, so every
+              aWATTar hour must equal the mean of the four ENTSO-E quarters
+              inside it. Disagreement would mean a stale feed or the wrong
+              auction sequence selected - the exact check that was done by
+              hand to decide which sequence to use.
+            -->
+            <munit-tools:assert-that expression="#[sizeOf(payload)]"
+                                     is="#[MunitTools::equalTo(0)]"
+                                     message="No hour may diverge from its four quarter-hours."/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="prefers-entsoe-and-flags-the-fallback">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import selectSeries from modules::PriceLogic
+                output application/java
+                var quarterly = readUrl('classpath://samples/canonical-entsoe-quarterly.json',
+                                        'application/json')
+                var hourly = readUrl('classpath://samples/canonical-awattar-hourly.json',
+                                     'application/json')
+                ---
+                {
+                  bothPresent:  selectSeries(quarterly, hourly),
+                  primaryEmpty: selectSeries([], hourly),
+                  bothEmpty:    selectSeries([], [])
+                }]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.bothPresent.points[0].source]"
+                                     is="#[MunitTools::equalTo('ENTSOE')]"
+                                     message="ENTSO-E is primary when both answer."/>
+            <munit-tools:assert-that expression="#[payload.bothPresent.degraded]"
+                                     is="#[MunitTools::equalTo(false)]"/>
+
+            <munit-tools:assert-that expression="#[payload.primaryEmpty.points[0].source]"
+                                     is="#[MunitTools::equalTo('AWATTAR')]"
+                                     message="aWATTar answers only when ENTSO-E gave nothing."/>
+            <munit-tools:assert-that expression="#[payload.primaryEmpty.degraded]"
+                                     is="#[MunitTools::equalTo(true)]"
+                                     message="A fallback response must be labelled degraded."/>
+
+            <munit-tools:assert-that expression="#[sizeOf(payload.bothEmpty.points)]"
+                                     is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[payload.bothEmpty.degraded]"
+                                     is="#[MunitTools::equalTo(true)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="never-returns-a-partial-window">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import cheapestWindow from modules::PriceLogic
+                output application/java
+                var hourly = readUrl('classpath://samples/canonical-awattar-hourly.json',
+                                     'application/json')
+                ---
+                {
+                  emptySeries:  cheapestWindow([], 4, null),
+                  windowTooLong: cheapestWindow(hourly, 48, null),
+                  mixedResolution: cheapestWindow(
+                      hourly ++ readUrl('classpath://samples/canonical-entsoe-quarterly.json',
+                                        'application/json'), 4, null)
+                }]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.emptySeries]"
+                                     is="#[MunitTools::nullValue()]"
+                                     message="An empty series has no cheapest window."/>
+            <munit-tools:assert-that expression="#[payload.windowTooLong]"
+                                     is="#[MunitTools::nullValue()]"
+                                     message="A 48-hour window does not fit in a 24-hour day."/>
+            <!--
+              Mixed resolutions are refused rather than guessed at. This is
+              the design decision made explicit: the layer never interleaves
+              a quarter-hourly and an hourly series.
+            -->
+            <munit-tools:assert-that expression="#[payload.mixedResolution]"
+                                     is="#[MunitTools::nullValue()]"
+                                     message="Mixed resolutions must be refused, not averaged."/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="finds-the-interval-covering-an-instant">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import currentPoint from modules::PriceLogic
+                output application/java
+                var points = readUrl('classpath://samples/canonical-entsoe-quarterly.json',
+                                     'application/json')
+                ---
+                {
+                  inside:  currentPoint(points, |2026-09-25T10:07:00Z|),
+                  atStart: currentPoint(points, |2026-09-24T22:00:00Z|),
+                  before:  currentPoint(points, |2026-09-24T21:59:00Z|),
+                  after:   currentPoint(points, |2026-09-25T22:00:00Z|)
+                }]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.inside != null]"
+                                     is="#[MunitTools::equalTo(true)]"/>
+            <!-- 10:07Z falls in the quarter beginning 10:00Z. -->
+            <munit-tools:assert-that expression="#[payload.inside.startsAt as String]"
+                                     is="#[MunitTools::equalTo('2026-09-25T10:00:00Z')]"/>
+
+            <!-- Interval bounds are inclusive of start, exclusive of end. -->
+            <munit-tools:assert-that expression="#[payload.atStart.startsAt as String]"
+                                     is="#[MunitTools::equalTo('2026-09-24T22:00:00Z')]"/>
+            <munit-tools:assert-that expression="#[payload.before]"
+                                     is="#[MunitTools::nullValue()]"/>
+            <munit-tools:assert-that expression="#[payload.after]"
+                                     is="#[MunitTools::nullValue()]"
+                                     message="periodEnd is exclusive - nothing covers it."/>
+        </munit:validation>
+    </munit:test>
+
+</mule>

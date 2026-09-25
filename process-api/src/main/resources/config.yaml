@@ -1,0 +1,29 @@
+# Non-secret configuration. Every value must be QUOTED - Mule's YAML
+# property reader accepts strings only, and an unquoted number stops the
+# application deploying.
+
+api:
+  port: "8090"
+
+# The system APIs this layer orchestrates. Localhost for now; these
+# become service names once the stack is containerised.
+sys:
+  entsoe:
+    host: "localhost"
+    port: "8091"
+  awattar:
+    host: "localhost"
+    port: "8092"
+
+upstream:
+  # Per-call timeout for a single system API.
+  timeoutMs: "25000"
+  # Budget for the scatter-gather as a whole. Must exceed timeoutMs, or
+  # a slow-but-healthy upstream is cut off before it can answer.
+  budgetMs: "30000"
+
+crosscheck:
+  # Maximum tolerated difference, per kWh, between an aWATTar hourly
+  # price and the mean of the four ENTSO-E quarter-hours inside it.
+  # 0.0001/kWh is 0.1 EUR/MWh. Observed agreement on live data was exact.
+  toleranceKWh: "0.0001"

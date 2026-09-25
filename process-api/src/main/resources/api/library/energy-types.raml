@@ -1,0 +1,93 @@
+#%RAML 1.0 Library
+
+usage: |
+  Canonical energy domain model. Every layer speaks these types.
+
+  SINGLE SOURCE OF TRUTH - this file lives at the repo root in
+  shared-specs/ and is copied into each module's
+  src/main/resources/api/library/ at build time by the
+  maven-resources-plugin. Those copies are gitignored. Edit this file,
+  never a copy, or the change will be silently overwritten on the next
+  build.
+
+  System APIs are responsible for mapping their upstream's native
+  format (ENTSO-E XML, aWATTar JSON) into these shapes, so the process
+  and experience layers never see an upstream's vocabulary.
+
+types:
+
+  BiddingZone:
+    type: string
+    enum: [DE_LU, AT, FR, NL, DK_1, DK_2]
+    description: |
+      Market bidding zone, normalised to an underscore form. Each maps
+      to an ENTSO-E EIC code in the system API - DE_LU is
+      10Y1001A1001A82H - but that code never leaves the system layer.
+    example: DE_LU
+
+  PricePoint:
+    type: object
+    description: One settlement interval of day-ahead wholesale price.
+    properties:
+      startsAt:
+        type: datetime
+        description: Interval start, always UTC.
+      endsAt: datetime
+      resolutionMinutes:
+        type: integer
+        enum: [15, 30, 60]
+        description: |
+          Derived from the upstream rather than assumed. The German
+          market is moving toward 15-minute settlement.
+      pricePerMWh:
+        type: number
+        description: Wholesale price as published. Can be negative.
+      pricePerKWh:
+        type: number
+        description: pricePerMWh / 1000, rounded to 5 decimals.
+      currency:
+        type: string
+        enum: [EUR]
+      source:
+        type: string
+        enum: [ENTSOE, AWATTAR, CACHE]
+        description: |
+          Which upstream this point came from. Part of the model on
+          purpose: when the process layer merges feeds or falls back to
+          stored data, the consumer can see where a number came from.
+          CACHE means both live upstreams failed.
+    example:
+      startsAt: 2026-09-17T22:00:00Z
+      endsAt: 2026-09-17T23:00:00Z
+      resolutionMinutes: 60
+      pricePerMWh: 139.24
+      pricePerKWh: 0.13924
+      currency: EUR
+      source: AWATTAR
+
+  PriceSeries:
+    type: object
+    properties:
+      biddingZone: BiddingZone
+      retrievedAt: datetime
+      degraded:
+        type: boolean
+        description: True when at least one upstream was unavailable.
+      points:
+        type: PricePoint[]
+        minItems: 0
+
+  ApiError:
+    type: object
+    properties:
+      code:
+        type: string
+        example: UPSTREAM_UNAVAILABLE
+      message: string
+      correlationId: string
+      occurredAt: datetime
+    example:
+      code: UPSTREAM_UNAVAILABLE
+      message: No price source responded.
+      correlationId: 9f2c1b7a-4e10-4d0e-8a6f-2c6b0d1e33aa
+      occurredAt: 2026-09-20T09:12:44Z
