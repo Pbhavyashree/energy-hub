@@ -27,3 +27,15 @@ crosscheck:
   # price and the mean of the four ENTSO-E quarter-hours inside it.
   # 0.0001/kWh is 0.1 EUR/MWh. Observed agreement on live data was exact.
   toleranceKWh: "0.0001"
+
+db:
+  url: "jdbc:postgresql://localhost:5432/energyhub"
+  user: "postgres"
+  # Local development password only. The deployed instance overrides it
+  # with a system property, the same way the ENTSO-E token is supplied:
+  #   -Ddb.password=...
+  # so a real credential never enters the working tree.
+  password: "postgres"
+  # Small pool: this is one application talking to one database, and the
+  # work is short reads plus one bulk write per poll.
+  poolMax: "5"

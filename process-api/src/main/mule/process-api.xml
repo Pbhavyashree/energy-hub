@@ -2,6 +2,7 @@
 <mule xmlns="http://www.mulesoft.org/schema/mule/core"
       xmlns:http="http://www.mulesoft.org/schema/mule/http"
       xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:schemaLocation="
         http://www.mulesoft.org/schema/mule/core
@@ -9,7 +10,9 @@
         http://www.mulesoft.org/schema/mule/http
         http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
         http://www.mulesoft.org/schema/mule/mule-apikit
-        http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd">
+        http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+        http://www.mulesoft.org/schema/mule/db
+        http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
 
     <configuration-properties file="config.yaml"/>
 
@@ -29,6 +32,26 @@
     <http:request-config name="awattar-sys-api">
         <http:request-connection host="${sys.awattar.host}" port="${sys.awattar.port}"/>
     </http:request-config>
+
+    <!--
+      The store serves two purposes at once: the historical record, and
+      the cache the flow falls back to when BOTH upstreams are
+      unreachable. That fallback is what makes `source: CACHE` in the
+      canonical model reachable at all.
+
+      The password comes from config.yaml for local work and is
+      overridden in a deployed instance with -Ddb.password=..., the same
+      way the ENTSO-E token is supplied.
+    -->
+    <db:config name="priceStore">
+        <db:generic-connection url="${db.url}"
+                               driverClassName="org.postgresql.Driver"
+                               user="${db.user}"
+                               password="${db.password}">
+            <!-- Pooling is a child element, not an attribute of the connection. -->
+            <db:pooling-profile maxPoolSize="${db.poolMax}"/>
+        </db:generic-connection>
+    </db:config>
 
     <apikit:config name="process-config"
                    api="api/energy-process-api.raml"
@@ -293,10 +316,56 @@
             ---
             selectSeries(vars.entsoePoints, vars.awattarPoints)]"/>
 
+        <!--
+          Fresh data is stored; stale data is not re-stored. Writing back
+          what we just read from the cache would refresh updated_at for
+          no reason and make the audit trail lie about when a price was
+          last confirmed.
+        -->
+        <choice>
+            <when expression="#[!isEmpty(vars.selected.points)]">
+                <set-variable variableName="toPersist" value="#[vars.entsoePoints ++ vars.awattarPoints]"/>
+                <try>
+                    <flow-ref name="persist-series"/>
+                    <error-handler>
+                        <!--
+                          A failed write must not fail a read. The caller
+                          asked for prices, and we have them.
+                        -->
+                        <on-error-continue logException="true">
+                            <logger level="WARN"
+                                    message="#['Persist failed, serving live data anyway: '
+                                              ++ (error.description default '-')]"/>
+                        </on-error-continue>
+                    </error-handler>
+                </try>
+            </when>
+            <otherwise>
+                <!-- Both upstreams gave nothing: fall back to the store. -->
+                <logger level="WARN"
+                        message="#['Both upstreams empty, falling back to cache zone='
+                                  ++ vars.biddingZone]"/>
+                <try>
+                    <flow-ref name="read-cached-series"/>
+                    <set-variable variableName="selected"
+                                  value="#[{ points: payload, degraded: true }]"/>
+                    <error-handler>
+                        <on-error-continue logException="true">
+                            <logger level="ERROR"
+                                    message="#['Cache read failed: '
+                                              ++ (error.description default '-')]"/>
+                            <set-variable variableName="selected"
+                                          value="#[{ points: [], degraded: true }]"/>
+                        </on-error-continue>
+                    </error-handler>
+                </try>
+            </otherwise>
+        </choice>
+
         <choice>
             <when expression="#[isEmpty(vars.selected.points)]">
                 <raise-error type="ENERGY:UPSTREAM_UNAVAILABLE"
-                             description="Neither upstream returned usable price data."/>
+                             description="No upstream responded and the cache held nothing for this period."/>
             </when>
         </choice>
 
@@ -357,6 +426,145 @@
                 to: vars.periodEnd as String
             }]]]></http:query-params>
         </http:request>
+    </sub-flow>
+
+    <!-- ============================================================
+         Persistence: the historical record AND the degraded cache
+         ============================================================ -->
+
+    <sub-flow name="persist-series">
+        <!--
+          One bulk statement rather than a loop. CE has no batch scope,
+          but db:bulk-insert takes the whole array and sends a single
+          JDBC batch - 96 quarter-hours in one round trip.
+
+          ON CONFLICT makes this idempotent: re-polling the same day is
+          harmless, and a revised price updates in place. The BEFORE
+          UPDATE trigger on price_point writes the audit row when a value
+          actually changes, so no application code has to remember to.
+
+          Timestamps are cast explicitly. The canonical model carries them
+          as ISO strings and Postgres will not silently coerce text to
+          timestamptz through JDBC.
+        -->
+        <!--
+          ELEMENT ORDER MATTERS: db:bulk-input-parameters must come
+          BEFORE db:sql. After db:sql the schema allows only
+          db:parameter-types, which is what the error
+          "One of {...parameter-types} is expected" is really saying.
+          It is not valid as an attribute either.
+        -->
+        <db:bulk-insert config-ref="priceStore">
+            <db:bulk-input-parameters><![CDATA[#[%dw 2.0
+                output application/java
+                /*
+                 * The Postgres JDBC driver infers a parameter's type from
+                 * the CAST target and then parses the string itself. It
+                 * rejects ISO-8601 with T and Z:
+                 *   "Bad value for type timestamp/date/time: 2026-09-24T22:00:00Z"
+                 * so values go out as 'yyyy-MM-dd HH:mm:ss' in UTC and the
+                 * SQL attaches the zone with AT TIME ZONE 'UTC'.
+                 */
+                fun pgTimestamp(d) =
+                    ((d as DateTime) >> 'UTC') as String {format: "yyyy-MM-dd HH:mm:ss"}
+                ---
+                vars.toPersist map {
+                    zone:       vars.biddingZone,
+                    startsAt:   pgTimestamp($.startsAt),
+                    endsAt:     pgTimestamp($.endsAt),
+                    resolution: $.resolutionMinutes,
+                    source:     $.source,
+                    perMwh:     $.pricePerMWh,
+                    perKwh:     $.pricePerKWh,
+                    currency:   ($.currency default 'EUR')
+                }]]]></db:bulk-input-parameters>
+            <db:sql><![CDATA[
+                INSERT INTO price_point (
+                    bidding_zone, starts_at, ends_at, resolution_minutes,
+                    source, price_per_mwh, price_per_kwh, currency)
+                VALUES (
+                    :zone,
+                    CAST(:startsAt AS timestamp) AT TIME ZONE 'UTC',
+                    CAST(:endsAt   AS timestamp) AT TIME ZONE 'UTC',
+                    :resolution, :source, :perMwh, :perKwh, :currency)
+                ON CONFLICT (bidding_zone, starts_at, source)
+                DO UPDATE SET
+                    ends_at            = EXCLUDED.ends_at,
+                    resolution_minutes = EXCLUDED.resolution_minutes,
+                    price_per_mwh      = EXCLUDED.price_per_mwh,
+                    price_per_kwh      = EXCLUDED.price_per_kwh
+            ]]></db:sql>
+        </db:bulk-insert>
+
+        <logger level="INFO"
+                message="#['Persisted ' ++ (sizeOf(vars.toPersist) as String)
+                          ++ ' points zone=' ++ vars.biddingZone]"/>
+    </sub-flow>
+
+    <sub-flow name="read-cached-series">
+        <!--
+          One query for the whole window, then the same source-preference
+          rule the live path uses: finest resolution wins, which in
+          practice means ENTSO-E over aWATTar. Resolutions are never
+          mixed, here or anywhere else.
+        -->
+        <db:select config-ref="priceStore">
+            <db:sql><![CDATA[
+                SELECT starts_at, ends_at, resolution_minutes,
+                       source, price_per_mwh, price_per_kwh, currency
+                FROM price_point
+                WHERE bidding_zone = :zone
+                  AND starts_at >= CAST(:periodStart AS timestamp) AT TIME ZONE 'UTC'
+                  AND starts_at <  CAST(:periodEnd   AS timestamp) AT TIME ZONE 'UTC'
+                ORDER BY starts_at
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[#[%dw 2.0
+                output application/java
+                fun pgTimestamp(d) =
+                    ((d as DateTime) >> 'UTC') as String {format: "yyyy-MM-dd HH:mm:ss"}
+                ---
+                {
+                    zone: vars.biddingZone,
+                    periodStart: pgTimestamp(vars.periodStart),
+                    periodEnd: pgTimestamp(vars.periodEnd)
+                }]]]></db:input-parameters>
+        </db:select>
+
+        <!--
+          NOTE: no // comments inside this expression. XML normalises
+          newlines in an ATTRIBUTE value to spaces, so a multi-line
+          DataWeave script written in value="..." collapses to one line
+          and a // comment swallows everything after it - including the
+          closing brace. The failure reads "Unexpected end of input,
+          expected '}' ... (line 1, column 906)".
+
+          Points read from the store are labelled source: 'CACHE', never
+          their original upstream: a consumer has to be able to tell
+          stored data from live.
+        -->
+        <set-payload value="#[%dw 2.0
+            output application/java
+            var rows = payload default []
+            var bySource = rows groupBy ((r) -> r.source)
+            var preferred =
+                if (!isEmpty(bySource['ENTSOE'] default [])) 'ENTSOE'
+                else if (!isEmpty(bySource['AWATTAR'] default [])) 'AWATTAR'
+                else null
+            ---
+            if (preferred == null) []
+            else (bySource[preferred] map {
+                startsAt: $.starts_at,
+                endsAt: $.ends_at,
+                resolutionMinutes: $.resolution_minutes,
+                pricePerMWh: $.price_per_mwh,
+                pricePerKWh: $.price_per_kwh,
+                currency: $.currency default 'EUR',
+                source: 'CACHE'
+            })]"/>
+
+        <logger level="INFO"
+                message="#['Cache returned ' ++ sizeOf(payload)
+                          ++ ' points zone=' ++ vars.biddingZone]"/>
     </sub-flow>
 
     <!-- ============================================================

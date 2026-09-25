@@ -55,6 +55,21 @@
         <artifactId>mule-maven-plugin</artifactId>
         <version>${mule.maven.plugin.version}</version>
         <extensions>true</extensions>
+        <configuration>
+          <!--
+            A JDBC driver has to be declared as a shared library or the
+            DB connector cannot see it: Mule isolates each plugin's
+            classloader, and the driver must live in the application's
+            classloader instead. Without this the app deploys and then
+            fails at runtime with "No suitable driver found".
+          -->
+          <sharedLibraries>
+            <sharedLibrary>
+              <groupId>org.postgresql</groupId>
+              <artifactId>postgresql</artifactId>
+            </sharedLibrary>
+          </sharedLibraries>
+        </configuration>
       </plugin>
 
       <plugin>
@@ -87,6 +102,20 @@
       <artifactId>mule-apikit-module</artifactId>
       <version>1.11.3</version>
       <classifier>mule-plugin</classifier>
+    </dependency>
+
+    <dependency>
+      <groupId>org.mule.connectors</groupId>
+      <artifactId>mule-db-connector</artifactId>
+      <version>1.14.13</version>
+      <classifier>mule-plugin</classifier>
+    </dependency>
+
+    <!-- Plain jar, not a mule-plugin: see sharedLibraries above. -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>42.7.4</version>
     </dependency>
 
     <dependency>
