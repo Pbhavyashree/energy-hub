@@ -368,3 +368,95 @@ permanently silent.
 
 Only assertions on actual values caught it. Every structural assertion passed
 throughout.
+
+---
+
+# The Host header, and why the same request got two different answers
+
+First live call through the ENTSO-E flow returned HTTP 400, while the
+identical request sent by hand returned 200.
+
+## Narrowing it
+
+The same URL worked from curl, so the difference had to be inside the flow.
+Cheap probes first, each ruling something out:
+
+| Probe | Result | Rules out |
+|---|---|---|
+| curl with the exact params the flow should send | **200** | the parameters |
+| curl with a wrong token | 401 | — |
+| curl with an empty token | 401 | — |
+| curl with no token at all | 401 | the token entirely — every token fault is 401, and we were getting 400 |
+
+A temporary logger in the flow then printed what it actually computed:
+
+```
+zone=DE_LU  eic=10Y1001A1001A82H
+rawStart="2026-09-25T00:00:00+02:00"
+fmtStart=202609242200  fmtEnd=202609252200  tokenLen=36
+```
+
+All correct. Right EIC, right timestamp format, token fully resolved. The
+flow was building exactly the request that worked from curl, and still got a
+400.
+
+## The wire log
+
+At that point the only remaining difference was *how* the request went out,
+which needs the HTTP wire logger:
+
+```xml
+<AsyncLogger name="org.mule.service.http.impl.service.HttpMessageLogger" level="DEBUG"/>
+```
+
+in `conf/log4j2.xml`. It prints the outbound request line and every header.
+The URL was character-for-character identical to the working curl. The
+headers were not:
+
+```
+Host: web-api.tp.entsoe.eu:443      <- Mule
+Host: web-api.tp.entsoe.eu          <- curl
+User-Agent: AHC/1.0
+```
+
+And the response body — JSON, where the API itself returns XML, which was
+itself a clue that a gateway and not the API was answering:
+
+```json
+{"uuAppErrorMap":{"uu-gateway-router/invalidRequestHeaders":{
+  "message":"Request contains inconsistent Forwarded/Host headers
+             resulting in invalid request URL.",
+  "cause":{"ERR_INVALID_URL":{"message":"Invalid URL"}}}}}
+```
+
+## Cause and fix
+
+Mule's HTTP requester always builds the Host header as `host:port`, so an
+HTTPS call on 443 sends `web-api.tp.entsoe.eu:443`. That is legal, and
+ENTSO-E's gateway rejects it. curl omits the port for a default-port URL and
+is accepted.
+
+Fix — override the header explicitly on the request:
+
+```xml
+<http:headers><![CDATA[#[{
+    "Host": p('entsoe.host')
+}]]]></http:headers>
+```
+
+There is a comment in the flow saying not to remove it.
+
+## Worth remembering
+
+Nothing about the request *as the flow computed it* was wrong. Every value
+checked out. Tools that report what your code intends will never show this
+class of failure — only a log of the bytes actually leaving the process.
+
+Also: the response's content type was the tell. An API that returns XML
+answering with JSON means something in front of it is doing the talking.
+
+## Housekeeping
+
+The wire log writes full URIs, so the security token ends up in plain text in
+`logs/`. Turn the logger off and delete those logs when finished, and rotate
+the token if it was exposed.

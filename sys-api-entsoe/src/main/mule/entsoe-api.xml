@@ -62,7 +62,7 @@
             <!--
               The upstream answered but had nothing. Deliberately distinct
               from 502: "no data published for that day" and "ENTSO-E is
-              down" need different reactions from the process layer.
+              unreachable" need different reactions from the process layer.
             -->
             <on-error-propagate type="ENTSOE:NO_DATA">
                 <set-variable variableName="httpStatus" value="404"/>
@@ -73,7 +73,7 @@
                 <set-variable variableName="httpStatus" value="504"/>
                 <flow-ref name="build-api-error"/>
             </on-error-propagate>
-            <on-error-propagate type="HTTP:CONNECTIVITY, HTTP:UNAUTHORIZED, HTTP:FORBIDDEN">
+            <on-error-propagate type="HTTP:CONNECTIVITY, HTTP:UNAUTHORIZED, HTTP:FORBIDDEN, HTTP:BAD_REQUEST">
                 <set-variable variableName="httpStatus" value="502"/>
                 <flow-ref name="build-api-error"/>
             </on-error-propagate>
@@ -106,8 +106,10 @@
                       value="#[attributes.queryParams.periodEnd default ((now() + |P1D|) >> 'UTC')]"/>
 
         <!--
-          Bidding zone -> EIC code. DE_LU is verified against live data;
-          VERIFY the others against the ENTSO-E area list before use.
+          Bidding zone -> EIC code. This translation is why the system
+          layer exists: nothing downstream should ever see
+          '10Y1001A1001A82H'. DE_LU is verified against live data; VERIFY
+          the others against the ENTSO-E area list before use.
         -->
         <set-variable variableName="eic" value="#[%dw 2.0
             output application/java
@@ -125,32 +127,33 @@
                 message="#['Fetching ENTSO-E A44 zone=' ++ vars.biddingZone
                           ++ ' corr=' ++ (correlationId default '-')]"/>
 
-        <!--
-          outputMimeType="text/plain" is load-bearing.
-
-          This flow inspects the document three times - Acknowledgement?
-          which curveType? then the mapping - and the response body is a
-          non-repeatable stream. Left as application/xml, the first
-          traversal consumes it and the later ones see a remnant: the
-          mapper then returned 96 well-formed intervals with correct
-          timestamps and every price equal to the LAST <Point> in the
-          document. No error, no warning, a flat price curve.
-
-          Taking the body as TEXT means nothing parses it on arrival. It
-          is materialised once into vars.rawXml, and each check parses
-          that string independently.
-
-          Serialising back out with write(payload, 'application/xml') was
-          tried first and does not work: DataWeave's XML writer rejects
-          the value readUrl/HTTP produces with "Trying to output
-          non-whitespace characters outside main element tree".
-        -->
         <http:request config-ref="entsoe-upstream"
                       method="GET"
                       path="/api"
                       responseTimeout="${entsoe.timeoutMs}"
                       outputMimeType="text/plain"
                       outputEncoding="UTF-8">
+
+            <!--
+              The explicit Host header is REQUIRED. Do not remove it.
+
+              Mule's HTTP requester builds the Host header as host:port and
+              therefore sends "web-api.tp.entsoe.eu:443". ENTSO-E sits
+              behind a gateway that rejects this with HTTP 400 and the body:
+
+                "Request contains inconsistent Forwarded/Host headers
+                 resulting in invalid request URL."
+
+              curl omits the port for the default HTTPS port and is
+              accepted. The URL, query string and token were byte-identical
+              in both cases - only this header differed. It cost an evening
+              to find, because nothing about the request as the flow
+              computed it was wrong.
+            -->
+            <http:headers><![CDATA[#[{
+                "Host": p('entsoe.host')
+            }]]]></http:headers>
+
             <http:query-params><![CDATA[#[%dw 2.0
                 output application/java
                 fun entsoeInstant(d) =
@@ -166,6 +169,20 @@
                 }]]]></http:query-params>
         </http:request>
 
+        <!--
+          ================= READ THE BODY EXACTLY ONCE =================
+
+          The body is taken as TEXT (outputMimeType above) so nothing
+          parses it on arrival, then materialised once here. This flow
+          inspects the document three times, and on a non-repeatable
+          stream each traversal consumes more of it - the symptom being a
+          well-formed response with correct timestamps where every price
+          is the LAST <Point> in the document.
+
+          Serialising back out with write(payload, 'application/xml') does
+          NOT work: DataWeave's XML writer rejects the value with "Trying
+          to output non-whitespace characters outside main element tree".
+        -->
         <set-variable variableName="rawXml" value="#[payload as String]"/>
 
         <set-variable variableName="isAck" value="#[%dw 2.0
@@ -191,10 +208,9 @@
         </choice>
 
         <!--
-          Live data uses curveType A03 and returns two TimeSeries, one per
-          auction sequence. Both are logged so a change upstream - a third
-          series, a switch to A01 - shows up in the logs rather than
-          quietly altering the output.
+          Live data returns two TimeSeries, one per auction sequence, at
+          curveType A03. Logged so a change upstream - a third series, a
+          switch to A01 - shows up rather than quietly altering output.
         -->
         <set-variable variableName="series" value="#[%dw 2.0
             import seriesSummary from modules::EntsoeMapper
@@ -222,7 +238,6 @@
             ---
             toCanonical(read(vars.rawXml, 'application/xml'))]"/>
 
-        <!-- Free the copy once mapping is done. -->
         <remove-variable variableName="rawXml"/>
 
         <logger level="INFO"
