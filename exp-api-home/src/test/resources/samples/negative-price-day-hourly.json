@@ -1,0 +1,218 @@
+[
+  {
+    "startsAt": "2026-03-14T23:00:00Z",
+    "endsAt": "2026-03-15T00:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -21.0,
+    "pricePerKWh": -0.021,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T00:00:00Z",
+    "endsAt": "2026-03-15T01:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -28.0,
+    "pricePerKWh": -0.028,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T01:00:00Z",
+    "endsAt": "2026-03-15T02:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -34.0,
+    "pricePerKWh": -0.034,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T02:00:00Z",
+    "endsAt": "2026-03-15T03:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -39.0,
+    "pricePerKWh": -0.039,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T03:00:00Z",
+    "endsAt": "2026-03-15T04:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -42.0,
+    "pricePerKWh": -0.042,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T04:00:00Z",
+    "endsAt": "2026-03-15T05:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -47.0,
+    "pricePerKWh": -0.047,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T05:00:00Z",
+    "endsAt": "2026-03-15T06:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -55.0,
+    "pricePerKWh": -0.055,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T06:00:00Z",
+    "endsAt": "2026-03-15T07:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -61.0,
+    "pricePerKWh": -0.061,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T07:00:00Z",
+    "endsAt": "2026-03-15T08:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -72.0,
+    "pricePerKWh": -0.072,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T08:00:00Z",
+    "endsAt": "2026-03-15T09:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -88.0,
+    "pricePerKWh": -0.088,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T09:00:00Z",
+    "endsAt": "2026-03-15T10:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -104.0,
+    "pricePerKWh": -0.104,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T10:00:00Z",
+    "endsAt": "2026-03-15T11:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -119.0,
+    "pricePerKWh": -0.119,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T11:00:00Z",
+    "endsAt": "2026-03-15T12:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -131.0,
+    "pricePerKWh": -0.131,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T12:00:00Z",
+    "endsAt": "2026-03-15T13:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -118.0,
+    "pricePerKWh": -0.118,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T13:00:00Z",
+    "endsAt": "2026-03-15T14:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -97.0,
+    "pricePerKWh": -0.097,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T14:00:00Z",
+    "endsAt": "2026-03-15T15:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -70.0,
+    "pricePerKWh": -0.07,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T15:00:00Z",
+    "endsAt": "2026-03-15T16:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -44.0,
+    "pricePerKWh": -0.044,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T16:00:00Z",
+    "endsAt": "2026-03-15T17:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": -19.0,
+    "pricePerKWh": -0.019,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T17:00:00Z",
+    "endsAt": "2026-03-15T18:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": 4.0,
+    "pricePerKWh": 0.004,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T18:00:00Z",
+    "endsAt": "2026-03-15T19:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": 21.0,
+    "pricePerKWh": 0.021,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T19:00:00Z",
+    "endsAt": "2026-03-15T20:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": 38.0,
+    "pricePerKWh": 0.038,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T20:00:00Z",
+    "endsAt": "2026-03-15T21:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": 52.0,
+    "pricePerKWh": 0.052,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T21:00:00Z",
+    "endsAt": "2026-03-15T22:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": 31.0,
+    "pricePerKWh": 0.031,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  },
+  {
+    "startsAt": "2026-03-15T22:00:00Z",
+    "endsAt": "2026-03-15T23:00:00Z",
+    "resolutionMinutes": 60,
+    "pricePerMWh": 9.0,
+    "pricePerKWh": 0.009,
+    "currency": "EUR",
+    "source": "AWATTAR"
+  }
+]

@@ -1,0 +1,866 @@
+[
+  {
+    "startsAt": "2026-09-24T22:00:00Z",
+    "endsAt": "2026-09-24T22:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 196.99,
+    "pricePerKWh": 0.19699,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-24T22:15:00Z",
+    "endsAt": "2026-09-24T22:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 184.4,
+    "pricePerKWh": 0.1844,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-24T22:30:00Z",
+    "endsAt": "2026-09-24T22:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 175.79,
+    "pricePerKWh": 0.17579,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-24T22:45:00Z",
+    "endsAt": "2026-09-24T23:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 170.59,
+    "pricePerKWh": 0.17059,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-24T23:00:00Z",
+    "endsAt": "2026-09-24T23:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 175.13,
+    "pricePerKWh": 0.17513,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-24T23:15:00Z",
+    "endsAt": "2026-09-24T23:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 171.84,
+    "pricePerKWh": 0.17184,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-24T23:30:00Z",
+    "endsAt": "2026-09-24T23:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 171.43,
+    "pricePerKWh": 0.17143,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-24T23:45:00Z",
+    "endsAt": "2026-09-25T00:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 170.27,
+    "pricePerKWh": 0.17027,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T00:00:00Z",
+    "endsAt": "2026-09-25T00:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 167.76,
+    "pricePerKWh": 0.16776,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T00:15:00Z",
+    "endsAt": "2026-09-25T00:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 166.49,
+    "pricePerKWh": 0.16649,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T00:30:00Z",
+    "endsAt": "2026-09-25T00:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 165.93,
+    "pricePerKWh": 0.16593,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T00:45:00Z",
+    "endsAt": "2026-09-25T01:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 162.38,
+    "pricePerKWh": 0.16238,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T01:00:00Z",
+    "endsAt": "2026-09-25T01:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 164.46,
+    "pricePerKWh": 0.16446,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T01:15:00Z",
+    "endsAt": "2026-09-25T01:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 165.55,
+    "pricePerKWh": 0.16555,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T01:30:00Z",
+    "endsAt": "2026-09-25T01:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 169.18,
+    "pricePerKWh": 0.16918,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T01:45:00Z",
+    "endsAt": "2026-09-25T02:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 169.27,
+    "pricePerKWh": 0.16927,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T02:00:00Z",
+    "endsAt": "2026-09-25T02:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 172.29,
+    "pricePerKWh": 0.17229,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T02:15:00Z",
+    "endsAt": "2026-09-25T02:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 170.87,
+    "pricePerKWh": 0.17087,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T02:30:00Z",
+    "endsAt": "2026-09-25T02:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 169.82,
+    "pricePerKWh": 0.16982,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T02:45:00Z",
+    "endsAt": "2026-09-25T03:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 165.87,
+    "pricePerKWh": 0.16587,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T03:00:00Z",
+    "endsAt": "2026-09-25T03:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 168.41,
+    "pricePerKWh": 0.16841,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T03:15:00Z",
+    "endsAt": "2026-09-25T03:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 169.79,
+    "pricePerKWh": 0.16979,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T03:30:00Z",
+    "endsAt": "2026-09-25T03:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 192.29,
+    "pricePerKWh": 0.19229,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T03:45:00Z",
+    "endsAt": "2026-09-25T04:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 221.15,
+    "pricePerKWh": 0.22115,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T04:00:00Z",
+    "endsAt": "2026-09-25T04:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 204.38,
+    "pricePerKWh": 0.20438,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T04:15:00Z",
+    "endsAt": "2026-09-25T04:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 236.08,
+    "pricePerKWh": 0.23608,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T04:30:00Z",
+    "endsAt": "2026-09-25T04:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 236.44,
+    "pricePerKWh": 0.23644,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T04:45:00Z",
+    "endsAt": "2026-09-25T05:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 264.16,
+    "pricePerKWh": 0.26416,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T05:00:00Z",
+    "endsAt": "2026-09-25T05:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 252.93,
+    "pricePerKWh": 0.25293,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T05:15:00Z",
+    "endsAt": "2026-09-25T05:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 266.66,
+    "pricePerKWh": 0.26666,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T05:30:00Z",
+    "endsAt": "2026-09-25T05:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 273.61,
+    "pricePerKWh": 0.27361,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T05:45:00Z",
+    "endsAt": "2026-09-25T06:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 252.41,
+    "pricePerKWh": 0.25241,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T06:00:00Z",
+    "endsAt": "2026-09-25T06:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 290.87,
+    "pricePerKWh": 0.29087,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T06:15:00Z",
+    "endsAt": "2026-09-25T06:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 260.69,
+    "pricePerKWh": 0.26069,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T06:30:00Z",
+    "endsAt": "2026-09-25T06:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 243.4,
+    "pricePerKWh": 0.2434,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T06:45:00Z",
+    "endsAt": "2026-09-25T07:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 203.99,
+    "pricePerKWh": 0.20399,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T07:00:00Z",
+    "endsAt": "2026-09-25T07:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 235.46,
+    "pricePerKWh": 0.23546,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T07:15:00Z",
+    "endsAt": "2026-09-25T07:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 202.74,
+    "pricePerKWh": 0.20274,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T07:30:00Z",
+    "endsAt": "2026-09-25T07:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 189.27,
+    "pricePerKWh": 0.18927,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T07:45:00Z",
+    "endsAt": "2026-09-25T08:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 157.5,
+    "pricePerKWh": 0.1575,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T08:00:00Z",
+    "endsAt": "2026-09-25T08:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 182.5,
+    "pricePerKWh": 0.1825,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T08:15:00Z",
+    "endsAt": "2026-09-25T08:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 165,
+    "pricePerKWh": 0.165,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T08:30:00Z",
+    "endsAt": "2026-09-25T08:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 148.66,
+    "pricePerKWh": 0.14866,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T08:45:00Z",
+    "endsAt": "2026-09-25T09:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 137.99,
+    "pricePerKWh": 0.13799,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T09:00:00Z",
+    "endsAt": "2026-09-25T09:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 137.82,
+    "pricePerKWh": 0.13782,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T09:15:00Z",
+    "endsAt": "2026-09-25T09:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 123.02,
+    "pricePerKWh": 0.12302,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T09:30:00Z",
+    "endsAt": "2026-09-25T09:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 100.36,
+    "pricePerKWh": 0.10036,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T09:45:00Z",
+    "endsAt": "2026-09-25T10:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 72.42,
+    "pricePerKWh": 0.07242,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T10:00:00Z",
+    "endsAt": "2026-09-25T10:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 85.78,
+    "pricePerKWh": 0.08578,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T10:15:00Z",
+    "endsAt": "2026-09-25T10:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 62.83,
+    "pricePerKWh": 0.06283,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T10:30:00Z",
+    "endsAt": "2026-09-25T10:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 49.38,
+    "pricePerKWh": 0.04938,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T10:45:00Z",
+    "endsAt": "2026-09-25T11:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 42.75,
+    "pricePerKWh": 0.04275,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T11:00:00Z",
+    "endsAt": "2026-09-25T11:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 39.01,
+    "pricePerKWh": 0.03901,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T11:15:00Z",
+    "endsAt": "2026-09-25T11:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 36.12,
+    "pricePerKWh": 0.03612,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T11:30:00Z",
+    "endsAt": "2026-09-25T11:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 26.14,
+    "pricePerKWh": 0.02614,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T11:45:00Z",
+    "endsAt": "2026-09-25T12:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 19.17,
+    "pricePerKWh": 0.01917,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T12:00:00Z",
+    "endsAt": "2026-09-25T12:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 23.12,
+    "pricePerKWh": 0.02312,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T12:15:00Z",
+    "endsAt": "2026-09-25T12:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 35,
+    "pricePerKWh": 0.035,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T12:30:00Z",
+    "endsAt": "2026-09-25T12:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 39.94,
+    "pricePerKWh": 0.03994,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T12:45:00Z",
+    "endsAt": "2026-09-25T13:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 61.49,
+    "pricePerKWh": 0.06149,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T13:00:00Z",
+    "endsAt": "2026-09-25T13:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 40,
+    "pricePerKWh": 0.04,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T13:15:00Z",
+    "endsAt": "2026-09-25T13:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 73.58,
+    "pricePerKWh": 0.07358,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T13:30:00Z",
+    "endsAt": "2026-09-25T13:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 107.83,
+    "pricePerKWh": 0.10783,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T13:45:00Z",
+    "endsAt": "2026-09-25T14:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 126.76,
+    "pricePerKWh": 0.12676,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T14:00:00Z",
+    "endsAt": "2026-09-25T14:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 119.91,
+    "pricePerKWh": 0.11991,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T14:15:00Z",
+    "endsAt": "2026-09-25T14:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 142.44,
+    "pricePerKWh": 0.14244,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T14:30:00Z",
+    "endsAt": "2026-09-25T14:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 165,
+    "pricePerKWh": 0.165,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T14:45:00Z",
+    "endsAt": "2026-09-25T15:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 190.71,
+    "pricePerKWh": 0.19071,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T15:00:00Z",
+    "endsAt": "2026-09-25T15:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 157.71,
+    "pricePerKWh": 0.15771,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T15:15:00Z",
+    "endsAt": "2026-09-25T15:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 192.8,
+    "pricePerKWh": 0.1928,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T15:30:00Z",
+    "endsAt": "2026-09-25T15:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 206.21,
+    "pricePerKWh": 0.20621,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T15:45:00Z",
+    "endsAt": "2026-09-25T16:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 239.26,
+    "pricePerKWh": 0.23926,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T16:00:00Z",
+    "endsAt": "2026-09-25T16:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 202.24,
+    "pricePerKWh": 0.20224,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T16:15:00Z",
+    "endsAt": "2026-09-25T16:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 230,
+    "pricePerKWh": 0.23,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T16:30:00Z",
+    "endsAt": "2026-09-25T16:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 248.72,
+    "pricePerKWh": 0.24872,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T16:45:00Z",
+    "endsAt": "2026-09-25T17:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 284.74,
+    "pricePerKWh": 0.28474,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T17:00:00Z",
+    "endsAt": "2026-09-25T17:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 291.76,
+    "pricePerKWh": 0.29176,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T17:15:00Z",
+    "endsAt": "2026-09-25T17:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 305.47,
+    "pricePerKWh": 0.30547,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T17:30:00Z",
+    "endsAt": "2026-09-25T17:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 315.78,
+    "pricePerKWh": 0.31578,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T17:45:00Z",
+    "endsAt": "2026-09-25T18:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 300.7,
+    "pricePerKWh": 0.3007,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T18:00:00Z",
+    "endsAt": "2026-09-25T18:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 270,
+    "pricePerKWh": 0.27,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T18:15:00Z",
+    "endsAt": "2026-09-25T18:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 255,
+    "pricePerKWh": 0.255,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T18:30:00Z",
+    "endsAt": "2026-09-25T18:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 246.96,
+    "pricePerKWh": 0.24696,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T18:45:00Z",
+    "endsAt": "2026-09-25T19:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 236.7,
+    "pricePerKWh": 0.2367,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T19:00:00Z",
+    "endsAt": "2026-09-25T19:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 244.18,
+    "pricePerKWh": 0.24418,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T19:15:00Z",
+    "endsAt": "2026-09-25T19:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 231.25,
+    "pricePerKWh": 0.23125,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T19:30:00Z",
+    "endsAt": "2026-09-25T19:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 218.38,
+    "pricePerKWh": 0.21838,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T19:45:00Z",
+    "endsAt": "2026-09-25T20:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 202.89,
+    "pricePerKWh": 0.20289,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T20:00:00Z",
+    "endsAt": "2026-09-25T20:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 219.99,
+    "pricePerKWh": 0.21999,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T20:15:00Z",
+    "endsAt": "2026-09-25T20:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 208.59,
+    "pricePerKWh": 0.20859,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T20:30:00Z",
+    "endsAt": "2026-09-25T20:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 202.11,
+    "pricePerKWh": 0.20211,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T20:45:00Z",
+    "endsAt": "2026-09-25T21:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 194.72,
+    "pricePerKWh": 0.19472,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T21:00:00Z",
+    "endsAt": "2026-09-25T21:15:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 199.81,
+    "pricePerKWh": 0.19981,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T21:15:00Z",
+    "endsAt": "2026-09-25T21:30:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 193.53,
+    "pricePerKWh": 0.19353,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T21:30:00Z",
+    "endsAt": "2026-09-25T21:45:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 182.41,
+    "pricePerKWh": 0.18241,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  },
+  {
+    "startsAt": "2026-09-25T21:45:00Z",
+    "endsAt": "2026-09-25T22:00:00Z",
+    "resolutionMinutes": 15,
+    "pricePerMWh": 171.29,
+    "pricePerKWh": 0.17129,
+    "currency": "EUR",
+    "source": "ENTSOE"
+  }
+]

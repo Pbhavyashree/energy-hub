@@ -22,6 +22,7 @@ jobs:
           - sys-api-entsoe
           - process-api
           - exp-api-home
+          - exp-api-home
 
     steps:
       - uses: actions/checkout@v4

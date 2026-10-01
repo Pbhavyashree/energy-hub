@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core
+        http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit
+        http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools
+        http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+    <munit:config name="home-view-test-suite.xml"/>
+
+    <!--
+      Two fixtures, and the difference between them matters:
+
+        canonical-entsoe-quarterly.json   REAL. 96 points, PT15M, captured
+                                          from the running system API for
+                                          delivery day 2026-09-25.
+
+        negative-price-day-hourly.json    SYNTHETIC. 24 hourly points whose
+                                          DAY MEAN IS NEGATIVE.
+
+      The synthetic one is deliberate and its limits are understood. No
+      negative-mean day was captured live, and the point of the fixture is
+      not to claim one was - it is to test the BANDING RULE against a
+      condition the real fixture cannot express. The shape is real:
+      DE-LU day-ahead goes negative regularly.
+
+      This project has been bitten before by fixtures that agreed with the
+      code's own assumptions, so the assertions below are on VALUES - which
+      interval got which label - never on structure.
+
+      No flows run here. These call the module directly, so a failure means
+      the rule is wrong rather than the plumbing.
+    -->
+
+    <munit:test name="bands-split-the-day-into-thirds">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import bandOf, priceLadder from modules::HomeView
+                output application/java
+                var points = readUrl('classpath://samples/canonical-entsoe-quarterly.json',
+                                     'application/json')
+                var ladder = priceLadder(points)
+                fun countOf(label) =
+                    sizeOf(points filter (bandOf($.pricePerKWh, ladder) == label))
+                ---
+                {
+                    cheap:     countOf('CHEAP'),
+                    normal:    countOf('NORMAL'),
+                    expensive: countOf('EXPENSIVE'),
+                    total:     sizeOf(points)
+                }]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.total]"
+                                     is="#[MunitTools::equalTo(96)]"/>
+
+            <!--
+              Every interval gets exactly one label. A gap here would mean
+              the tercile boundaries do not meet.
+            -->
+            <munit-tools:assert-that
+                expression="#[payload.cheap + payload.normal + payload.expensive]"
+                is="#[MunitTools::equalTo(96)]"
+                message="Every interval must fall in exactly one band."/>
+
+            <!--
+              Ranges rather than exact thirds: real prices contain ties, and
+              tied values share a rank. What must hold is that CHEAP stays a
+              useful fraction of the day - the label is only actionable
+              because it describes roughly a third of it.
+            -->
+            <munit-tools:assert-that expression="#[payload.cheap >= 25 and payload.cheap &lt;= 40]"
+                                     is="#[MunitTools::equalTo(true)]"
+                                     message="CHEAP should cover roughly a third of the day."/>
+            <munit-tools:assert-that expression="#[payload.expensive >= 25 and payload.expensive &lt;= 40]"
+                                     is="#[MunitTools::equalTo(true)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="cheapest-interval-is-cheap-and-dearest-is-expensive"
+                description="The two unambiguous cases, asserted on real prices.">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import bandOf, priceLadder from modules::HomeView
+                output application/java
+                var points = readUrl('classpath://samples/canonical-entsoe-quarterly.json',
+                                     'application/json')
+                var ladder = priceLadder(points)
+                var sorted = points orderBy $.pricePerKWh
+                ---
+                {
+                    cheapestPrice: sorted[0].pricePerKWh,
+                    cheapestBand:  bandOf(sorted[0].pricePerKWh, ladder),
+                    dearestPrice:  sorted[-1].pricePerKWh,
+                    dearestBand:   bandOf(sorted[-1].pricePerKWh, ladder)
+                }]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.cheapestPrice]"
+                                     is="#[MunitTools::equalTo(0.01917)]"
+                                     message="Fixture drift check: the captured day's cheapest quarter-hour."/>
+            <munit-tools:assert-that expression="#[payload.cheapestBand]"
+                                     is="#[MunitTools::equalTo('CHEAP')]"/>
+            <munit-tools:assert-that expression="#[payload.dearestPrice]"
+                                     is="#[MunitTools::equalTo(0.31578)]"/>
+            <munit-tools:assert-that expression="#[payload.dearestBand]"
+                                     is="#[MunitTools::equalTo('EXPENSIVE')]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="a-negative-day-mean-does-not-invert-the-bands"
+                description="The reason banding is by rank and not by percentage of the mean.">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import bandOf, priceLadder from modules::HomeView
+                output application/java
+                var points = readUrl('classpath://samples/negative-price-day-hourly.json',
+                                     'application/json')
+                var prices = points map $.pricePerKWh
+                var ladder = priceLadder(points)
+                var sorted = prices orderBy $
+                var dayMean = (prices reduce ((item, acc = 0) -> acc + item)) / sizeOf(prices)
+                fun countOf(label) =
+                    sizeOf(points filter (bandOf($.pricePerKWh, ladder) == label))
+                ---
+                {
+                    dayMean:      dayMean,
+                    cheapestBand: bandOf(sorted[0], ladder),
+                    dearestBand:  bandOf(sorted[-1], ladder),
+                    cheap:        countOf('CHEAP'),
+                    normal:       countOf('NORMAL'),
+                    expensive:    countOf('EXPENSIVE'),
+
+                    /*
+                     * What the REJECTED rule would have produced. Saving as a
+                     * fraction of the day's mean, for the cheapest hour of the
+                     * day. With a negative mean the division flips the sign,
+                     * so the cheapest hour reports as ABOVE the mean and a
+                     * percentage-based banding would call it EXPENSIVE.
+                     */
+                    rejectedRuleSaving: (dayMean - sorted[0]) / dayMean
+                }]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.dayMean &lt; 0]"
+                                     is="#[MunitTools::equalTo(true)]"
+                                     message="This fixture is only meaningful if the day mean is negative."/>
+
+            <!-- The rejected rule, demonstrated rather than asserted about. -->
+            <munit-tools:assert-that expression="#[payload.rejectedRuleSaving &lt; 0]"
+                                     is="#[MunitTools::equalTo(true)]"
+                                     message="Percentage-of-mean inverts here: the cheapest hour looks dearer than average."/>
+
+            <!-- The rule actually in use is unaffected. -->
+            <munit-tools:assert-that expression="#[payload.cheapestBand]"
+                                     is="#[MunitTools::equalTo('CHEAP')]"
+                                     message="The cheapest hour of a negative day is still the cheapest hour."/>
+            <munit-tools:assert-that expression="#[payload.dearestBand]"
+                                     is="#[MunitTools::equalTo('EXPENSIVE')]"/>
+
+            <!-- 24 distinct hourly prices divide into exact thirds. -->
+            <munit-tools:assert-that expression="#[payload.cheap]"
+                                     is="#[MunitTools::equalTo(8)]"/>
+            <munit-tools:assert-that expression="#[payload.normal]"
+                                     is="#[MunitTools::equalTo(8)]"/>
+            <munit-tools:assert-that expression="#[payload.expensive]"
+                                     is="#[MunitTools::equalTo(8)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="the-covering-interval-is-half-open"
+                description="An instant on a boundary belongs to the interval it starts, not the one it ends.">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import covering from modules::HomeView
+                output application/java
+                var points = readUrl('classpath://samples/canonical-entsoe-quarterly.json',
+                                     'application/json')
+                var boundary = points[1].startsAt as DateTime
+                ---
+                {
+                    boundary:      points[1].startsAt,
+                    atBoundary:    covering(points, boundary).startsAt,
+                    justBefore:    covering(points, boundary - |PT1S|).startsAt,
+                    beforeTheDay:  covering(points, (points[0].startsAt as DateTime) - |PT1H|)
+                }]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <!--
+              Start inclusive, end exclusive. Without this, an instant on a
+              boundary matches two intervals and which one wins depends on
+              array order - that is the kind of thing that produces a
+              plausible answer 95% of the time.
+            -->
+            <munit-tools:assert-that expression="#[payload.atBoundary == payload.boundary]"
+                                     is="#[MunitTools::equalTo(true)]"
+                                     message="An instant exactly on a boundary belongs to the interval it STARTS."/>
+            <munit-tools:assert-that expression="#[payload.justBefore == payload.boundary]"
+                                     is="#[MunitTools::equalTo(false)]"
+                                     message="One second earlier belongs to the previous interval."/>
+            <munit-tools:assert-that expression="#[payload.beforeTheDay == null]"
+                                     is="#[MunitTools::equalTo(true)]"
+                                     message="An instant outside the published day is covered by nothing."/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="prices-convert-to-cents-at-two-decimals">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import cents from modules::HomeView
+                output application/java
+                ---
+                {
+                    typical:  cents(0.19699),
+                    negative: cents(-0.04308),
+                    zero:     cents(0),
+                    missing:  cents(null)
+                }]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.typical]"
+                                     is="#[MunitTools::equalTo(19.7)]"
+                                     message="EUR/kWh to cents/kWh, rounded to two decimals."/>
+            <!-- Negative prices are real and must survive the conversion. -->
+            <munit-tools:assert-that expression="#[payload.negative]"
+                                     is="#[MunitTools::equalTo(-4.31)]"/>
+            <munit-tools:assert-that expression="#[payload.zero]"
+                                     is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[payload.missing == null]"
+                                     is="#[MunitTools::equalTo(true)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="a-refused-window-is-passed-through-not-invented"
+                description="The process layer returns null rather than averaging across resolutions. This layer must not improve on that.">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import bestTimeOf from modules::HomeView
+                output application/java
+                ---
+                { result: bestTimeOf(null, false) }]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.result == null]"
+                                     is="#[MunitTools::equalTo(true)]"
+                                     message="A refusal upstream stays a refusal here."/>
+        </munit:validation>
+    </munit:test>
+
+</mule>
