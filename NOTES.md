@@ -858,3 +858,92 @@ three-hour window remains - but tomorrow's prices were published at 13:00 and
 are already in the database, so the useful answer is "03:00 tomorrow" rather
 than a refusal. The canonical model thinks in delivery days because the
 market does; a person at 22:42 does not. Next change.
+
+---
+
+# Running Mule CE without the Tanuki wrapper
+
+Verified 2026-10-01 on Windows x86: all four applications deploy and serve
+under a wrapper-free launch. `jps -v | grep -c BasicWrapper` returns 1 and
+/health answers normally.
+
+## The problem
+
+Free compute is ARM now - Oracle's always-free tier is 4 OCPUs and 24GB of
+Ampere, against 1/8 of an OCPU and 1GB for its x86 shape. The x86 shape
+cannot run four Mule apps; the ARM one easily can.
+
+But `bin/mule` launches through the Tanuki Java Service Wrapper, which ships
+NATIVE binaries per platform, and the 4.6.0 distribution contains:
+
+```
+exec/wrapper-linux-x86-64   exec/wrapper-linux-ia-64
+exec/wrapper-linux-x86-32   exec/wrapper-linux-ppc-64
+exec/wrapper-solaris-*      exec/wrapper-macosx-ppc-32
+```
+
+No aarch64. It bundles Tanuki 3.2.3, which predates ARM servers. So the
+supported launcher cannot start on the only free hardware worth having.
+
+## The way through
+
+`wrapper.conf` sets the wrapper as a CLASS, not as a given:
+
+```
+-Dmule.bootstrap.container.wrapper.class=
+    org.mule.runtime.module.boot.tanuki.internal.MuleContainerTanukiWrapper
+```
+
+Disassembling `MuleContainerWrapperProvider` shows it reads that property,
+loads the class reflectively, and checks only that it implements
+`MuleContainerWrapper`. There is no default - the property is mandatory and
+any conforming implementation is accepted. The stock distribution ships a
+second one, in the same jar:
+
+```
+org/mule/runtime/module/boot/internal/MuleContainerBasicWrapper.class
+```
+
+Pure Java. And the module graph cooperates: `org.mule.boot.api` exports its
+internal package to `org.mule.boot`, which is the module holding
+`MuleContainerBootstrap`, so the basic wrapper is reachable from the entry
+point. `org.mule.boot.tanuki` is the only module that `requires wrapper`,
+and nothing requires it in turn.
+
+## What the launch needs
+
+The JPMS flags are not guesswork - they are compiled into `JpmsUtils` as
+`REQUIRED_ADD_MODULES`, `REQUIRED_ADD_OPENS_JAVA_LANG` and
+`REQUIRED_ADD_OPENS_JAVA_LANG_REFLECT`, and
+`validateNoBootModuleLayerTweaking()` fails the boot without them:
+
+```
+--module-path  $MULE_HOME/lib/boot
+--add-modules=java.se,org.mule.boot.tanuki,org.mule.runtime.jpms.utils,com.fasterxml.jackson.core
+--add-opens=java.base/java.lang=org.mule.runtime.jpms.utils
+--add-opens=java.base/java.lang.reflect=org.mule.runtime.jpms.utils
+-m org.mule.boot/org.mule.runtime.module.reboot.MuleContainerBootstrap
+```
+
+Note that `org.mule.boot.tanuki` must still RESOLVE. That is fine: resolving
+a module loads no native code. The `.so` is touched only if the Tanuki
+wrapper is actually instantiated, which with the basic wrapper selected it
+never is.
+
+Captured in `deploy/run-mule.sh`.
+
+## Worth keeping even on x86
+
+Docker already supervises and restarts processes. A process supervisor
+inside the container is a second thing doing the same job, and it swallows
+signals - which is why wrapper-based images take the full ten second
+timeout to stop instead of shutting down cleanly. The script `exec`s the
+JVM so it becomes PID 1 and gets SIGTERM directly.
+
+## How it was verified without the server
+
+The runtime is bytecode; only the wrapper binary was ever
+architecture-specific. So a wrapper-free launch that boots on Windows x86
+boots on ARM Linux for the same reasons. Testing it locally turned "will
+this work on hardware I have not provisioned yet" into a question that
+could be answered in one command, before signing up for anything.
