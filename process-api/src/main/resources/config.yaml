@@ -39,3 +39,12 @@ db:
   # Small pool: this is one application talking to one database, and the
   # work is short reads plus one bulk write per poll.
   poolMax: "5"
+
+poll:
+  # The day-ahead auction clears around 12:45 CET. Polling hourly from
+  # 13:00 to 23:00 Berlin is enough to catch it plus any late
+  # publication; polling every minute only burns the ENTSO-E rate limit.
+  cron: "0 0 13-23 * * ?"
+  timeZone: "Europe/Berlin"
+  # Zones polled on a schedule. Others are still served on demand.
+  biddingZone: "DE_LU"

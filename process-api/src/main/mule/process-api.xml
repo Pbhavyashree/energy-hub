@@ -172,23 +172,280 @@
 
     <flow name="get:\health:process-config">
         <!--
-          Liveness only. It does not call the upstreams on purpose: a
-          health check that fans out to its dependencies turns one slow
-          upstream into a failing health check.
+          Still does NOT call the upstreams: a health check that fans out
+          to its dependencies turns one slow upstream into a failing
+          health check.
+
+          Instead it reports RECORDED state - when each source last gave
+          us data, from the scheduled poll's own history. That answers the
+          question that actually matters ("is data still arriving?")
+          without generating traffic to answer it.
         -->
+        <try>
+            <db:select config-ref="priceStore">
+                <db:sql><![CDATA[
+                    SELECT source,
+                           extract(epoch from last_success_at) AS last_success_epoch,
+                           extract(epoch from last_attempt_at) AS last_attempt_epoch,
+                           failures_24h
+                    FROM upstream_health
+                ]]></db:sql>
+            </db:select>
+
+            <set-variable variableName="health" value="#[payload default []]"/>
+
+            <error-handler>
+                <!--
+                  A database problem must not make the application look
+                  dead: it is still able to serve live upstream data.
+                  Report UP with empty history and say why.
+                -->
+                <on-error-continue logException="true">
+                    <logger level="WARN"
+                            message="#['Health could not read poll history: '
+                                      ++ (error.description default '-')]"/>
+                    <set-variable variableName="health" value="#[[]]"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+
         <set-payload value="#[%dw 2.0
             output application/json
+            fun toInstant(epoch) =
+                if (epoch == null) null
+                else (((epoch as Number) * 1000) as DateTime {unit: 'milliseconds'}) >> 'UTC'
+            fun forSource(name) = (vars.health filter ((h) -> h.source == name))[0]
+            fun describe(name, role, host, port) = do {
+                var row = forSource(name)
+                ---
+                {
+                    name: name,
+                    role: role,
+                    endpoint: host ++ ':' ++ port,
+                    lastSuccessAt: toInstant(row.last_success_epoch),
+                    lastAttemptAt: toInstant(row.last_attempt_epoch),
+                    failures24h: (row.failures_24h default 0) as Number
+                }
+            }
             ---
             {
-              status: 'UP',
-              upstreams: [
-                { name: 'ENTSOE',  role: 'PRIMARY',
-                  endpoint: p('sys.entsoe.host') ++ ':' ++ p('sys.entsoe.port') },
-                { name: 'AWATTAR', role: 'FALLBACK',
-                  endpoint: p('sys.awattar.host') ++ ':' ++ p('sys.awattar.port') }
-              ]
+                status: 'UP',
+                pollHistory: if (isEmpty(vars.health)) 'UNAVAILABLE' else 'AVAILABLE',
+                upstreams: [
+                    describe('ENTSOE',  'PRIMARY',  p('sys.entsoe.host'),  p('sys.entsoe.port')),
+                    describe('AWATTAR', 'FALLBACK', p('sys.awattar.host'), p('sys.awattar.port'))
+                ]
             }]"/>
     </flow>
+
+    <!-- ============================================================
+         Scheduled poll
+         ============================================================ -->
+
+    <flow name="poll-day-ahead-auction">
+        <!--
+          Makes this a system rather than a proxy: history accumulates
+          whether or not anyone calls the API, and every attempt is
+          recorded so /health has real state to report.
+
+          Each source is fetched in its OWN try block rather than through
+          collect-series. The serving path deliberately collapses a failed
+          route to an empty list, which loses the distinction between
+          "the upstream is down" and "the auction has not cleared yet" -
+          a distinction poll_run exists to record.
+        -->
+        <scheduler>
+            <scheduling-strategy>
+                <cron expression="${poll.cron}" timeZone="${poll.timeZone}"/>
+            </scheduling-strategy>
+        </scheduler>
+
+        <set-variable variableName="biddingZone" value="${poll.biddingZone}"/>
+
+        <!-- Tomorrow's delivery day, Berlin local, same construction as
+             the request path. -->
+        <set-variable variableName="periodStart" value="#[%dw 2.0
+            output application/java
+            var berlinTomorrow = (now() + |P1D|) >> 'Europe/Berlin'
+            ---
+            (berlinTomorrow as String {format: 'yyyy-MM-dd'}
+             ++ 'T00:00:00'
+             ++ (berlinTomorrow as String {format: 'XXX'})) as DateTime]"/>
+        <set-variable variableName="periodEnd"
+                      value="#[(vars.periodStart as DateTime) + |P1D|]"/>
+
+        <logger level="INFO"
+                message="#['Scheduled poll starting zone=' ++ vars.biddingZone
+                          ++ ' day=' ++ (vars.periodStart as String)]"/>
+
+        <!--
+          Each route gets its own try, so neither can prevent the other
+          from being attempted. The two sources are independent: there is
+          no reason a problem reaching ENTSO-E should mean aWATTar is
+          never polled.
+
+          This is not hypothetical. A logger inside record-poll-run threw
+          on the ENTSOE success path, the error escaped the sub-flow, and
+          the parent flow aborted - so aWATTar silently stopped being
+          polled while the poll_run table showed ENTSOE succeeding. The
+          table looked healthy; a whole source had gone missing.
+
+          The inner handlers already classify real failures into poll_run.
+          Anything reaching THIS handler is therefore a fault in the
+          bookkeeping itself, which is worth a WARN and nothing more.
+        -->
+        <try>
+            <flow-ref name="poll-entsoe"/>
+            <error-handler>
+                <on-error-continue logException="true">
+                    <logger level="WARN"
+                            message="#[%dw 2.0 output text/plain ---
+                                      'ENTSOE poll route aborted: '
+                                      ++ (error.description default '-')]"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+
+        <try>
+            <flow-ref name="poll-awattar"/>
+            <error-handler>
+                <on-error-continue logException="true">
+                    <logger level="WARN"
+                            message="#[%dw 2.0 output text/plain ---
+                                      'AWATTAR poll route aborted: '
+                                      ++ (error.description default '-')]"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+    </flow>
+
+    <sub-flow name="poll-entsoe">
+        <set-variable variableName="pollSource" value="ENTSOE"/>
+        <set-variable variableName="pollStartedAt" value="#[now() >> 'UTC']"/>
+        <try>
+            <flow-ref name="fetch-entsoe"/>
+            <set-variable variableName="toPersist" value="#[payload default []]"/>
+            <choice>
+                <when expression="#[isEmpty(vars.toPersist)]">
+                    <set-variable variableName="pollStatus" value="NO_DATA"/>
+                    <set-variable variableName="pollDetail"
+                                  value="Upstream answered with no published data."/>
+                </when>
+                <otherwise>
+                    <flow-ref name="persist-series"/>
+                    <set-variable variableName="pollStatus" value="SUCCESS"/>
+                    <set-variable variableName="pollDetail" value="#[null]"/>
+                </otherwise>
+            </choice>
+            <error-handler>
+                <on-error-continue logException="true">
+                    <set-variable variableName="toPersist" value="#[[]]"/>
+                    <set-variable variableName="pollStatus" value="FAILED"/>
+                    <set-variable variableName="pollDetail"
+                                  value="#[(error.description default 'Unknown failure')[0 to 480]]"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+        <flow-ref name="record-poll-run"/>
+    </sub-flow>
+
+    <sub-flow name="poll-awattar">
+        <set-variable variableName="pollSource" value="AWATTAR"/>
+        <set-variable variableName="pollStartedAt" value="#[now() >> 'UTC']"/>
+        <try>
+            <flow-ref name="fetch-awattar"/>
+            <set-variable variableName="toPersist" value="#[payload default []]"/>
+            <choice>
+                <when expression="#[isEmpty(vars.toPersist)]">
+                    <set-variable variableName="pollStatus" value="NO_DATA"/>
+                    <set-variable variableName="pollDetail"
+                                  value="Upstream answered with no published data."/>
+                </when>
+                <otherwise>
+                    <flow-ref name="persist-series"/>
+                    <set-variable variableName="pollStatus" value="SUCCESS"/>
+                    <set-variable variableName="pollDetail" value="#[null]"/>
+                </otherwise>
+            </choice>
+            <error-handler>
+                <on-error-continue logException="true">
+                    <set-variable variableName="toPersist" value="#[[]]"/>
+                    <set-variable variableName="pollStatus" value="FAILED"/>
+                    <set-variable variableName="pollDetail"
+                                  value="#[(error.description default 'Unknown failure')[0 to 480]]"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+        <flow-ref name="record-poll-run"/>
+    </sub-flow>
+
+    <sub-flow name="record-poll-run">
+        <!--
+          NO_DATA is not FAILED. "Tomorrow's auction has not cleared yet"
+          happens every morning and is normal; "the upstream is
+          unreachable" is not. Collapsing them would make /health cry wolf
+          daily and train whoever reads it to ignore it.
+        -->
+        <try>
+            <!--
+              ELEMENT ORDER, and it is NOT the same for every operation:
+                db:select, db:insert   sql FIRST, then input parameters
+                db:bulk-insert         bulk input parameters FIRST, then sql
+              Getting it wrong here reports that db:sql is invalid and that
+              auto-generated-keys-column-names was expected, which only
+              makes sense once you know the schema is naming what may
+              follow rather than what is allowed at all.
+            -->
+            <db:insert config-ref="priceStore">
+                <db:sql><![CDATA[
+                    INSERT INTO poll_run (
+                        source, bidding_zone, started_at, finished_at,
+                        status, points_written, detail)
+                    VALUES (
+                        :source, :zone,
+                        CAST(:startedAt AS timestamp) AT TIME ZONE 'UTC',
+                        now(), :status, :written, :detail)
+                ]]></db:sql>
+                <db:input-parameters><![CDATA[#[%dw 2.0
+                    output application/java
+                    fun pgTimestamp(d) =
+                        ((d as DateTime) >> 'UTC') as String {format: "yyyy-MM-dd HH:mm:ss"}
+                    ---
+                    {
+                        source:    vars.pollSource,
+                        zone:      vars.biddingZone,
+                        startedAt: pgTimestamp(vars.pollStartedAt),
+                        status:    vars.pollStatus,
+                        written:   sizeOf(vars.toPersist default []),
+                        detail:    vars.pollDetail
+                    }]]]></db:input-parameters>
+            </db:insert>
+
+            <error-handler>
+                <!-- Bookkeeping must never break the poll itself. -->
+                <on-error-continue logException="true">
+                    <logger level="WARN"
+                            message="#['Could not record poll_run for '
+                                      ++ (vars.pollSource default '?') ++ ': '
+                                      ++ (error.description default '-')]"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+
+        <!--
+          Explicit output type, for the same reason as in persist-series:
+          toPersist carries application/json on the success path and
+          application/java on the failure path, where the error handler
+          replaces it with an empty array. So this logger worked for as
+          long as every poll was failing and broke the moment one
+          succeeded - which is the least useful order to discover it in.
+        -->
+        <logger level="INFO"
+                message="#[%dw 2.0 output text/plain ---
+                          'Poll ' ++ (vars.pollSource default '?')
+                          ++ ' status=' ++ (vars.pollStatus default '?')
+                          ++ ' points=' ++ (sizeOf(vars.toPersist default []) as String)]"/>
+    </sub-flow>
 
     <!-- ============================================================
          Orchestration
@@ -496,9 +753,26 @@
             ]]></db:sql>
         </db:bulk-insert>
 
+        <!--
+          The output directive is load-bearing, not decoration. This
+          expression mixes two variables of DIFFERENT media types:
+          toPersist carries application/json from the upstream response,
+          biddingZone is a plain application/java String. DataWeave then
+          refuses to guess an output type for the concatenation:
+            "Unable to infer a output media type as more than one is
+             being used: application/json,application/java"
+          Loggers elsewhere in this file concatenate ONE variable with
+          string literals, so inference has a single media type to work
+          from and they need no directive.
+
+          This surfaced only in the scheduled poll. On the request path a
+          payload fixes the media type before the logger runs; a
+          scheduler-triggered flow has no such anchor.
+        -->
         <logger level="INFO"
-                message="#['Persisted ' ++ sizeOf(vars.toPersist)
-                          ++ ' points zone=' ++ vars.biddingZone]"/>
+                message="#[%dw 2.0 output text/plain ---
+                          'Persisted ' ++ (sizeOf(vars.toPersist) as String)
+                          ++ ' points zone=' ++ (vars.biddingZone as String)]"/>
     </sub-flow>
 
     <sub-flow name="read-cached-series">

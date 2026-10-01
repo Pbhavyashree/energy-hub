@@ -124,9 +124,10 @@ traits:
       call them - a health check that fans out to its dependencies turns
       one slow upstream into a failing health check.
 
-      Upstream reachability becomes meaningful once the scheduled poll
-      and its persistence exist, and can be reported from recorded state
-      rather than a live call.
+      What it DOES report is recorded state: when each source last gave
+      us data, taken from the scheduled poll's own history. That answers
+      the question that matters - "is data still arriving?" - without
+      generating traffic to answer it.
     responses:
       200:
         body:
@@ -135,6 +136,12 @@ traits:
             status:
               type: string
               enum: [UP]
+            pollHistory:
+              type: string
+              enum: [AVAILABLE, UNAVAILABLE]
+              description: |
+                UNAVAILABLE means the poll history could not be read, or
+                no poll has run yet. The application is still serving.
             upstreams:
               type: array
               items:
@@ -145,16 +152,36 @@ traits:
                     type: string
                     enum: [PRIMARY, FALLBACK]
                   endpoint: string
+                  lastSuccessAt:
+                    type: datetime
+                    required: false
+                    description: Last poll that returned published data.
+                  lastAttemptAt:
+                    type: datetime
+                    required: false
+                  failures24h:
+                    type: integer
+                    description: |
+                      Polls that FAILED in the last 24 hours. NO_DATA is
+                      not counted: an auction that has not cleared yet is
+                      normal, not a fault.
           # `example` belongs INSIDE body. As a sibling of body it is a
           # response node property, which RAML 1.0 does not allow:
           #   "Property 'example' not supported in a RAML 1.0 response node"
           # MUnit deploys happily with the mistake; a packaged deploy does not.
           example:
             status: UP
+            pollHistory: AVAILABLE
             upstreams:
               - name: ENTSOE
                 role: PRIMARY
                 endpoint: localhost:8091
+                lastSuccessAt: 2026-10-01T11:00:04Z
+                lastAttemptAt: 2026-10-01T11:00:04Z
+                failures24h: 0
               - name: AWATTAR
                 role: FALLBACK
                 endpoint: localhost:8092
+                lastSuccessAt: 2026-10-01T11:00:06Z
+                lastAttemptAt: 2026-10-01T11:00:06Z
+                failures24h: 0

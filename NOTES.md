@@ -669,3 +669,105 @@ Default in `conf/wrapper.conf` is `-XX:MaxMetaspaceSize=256m`; raised to
 assuming a deploy failure means broken code. Worth remembering for
 deployment: three Mule apps in one CE runtime on a small VPS will hit exactly
 this.
+
+---
+
+# The scheduled poll, and the bug that deleted a source
+
+Verified 2026-10-01. The scheduler fires, both sources are polled, every
+attempt is recorded, and `/health` answers from that record instead of
+asserting it is fine:
+
+```json
+{ "status": "UP", "pollHistory": "AVAILABLE",
+  "upstreams": [
+    { "name": "ENTSOE",  "role": "PRIMARY",  "lastSuccessAt": "2026-10-01T20:03:00Z" },
+    { "name": "AWATTAR", "role": "FALLBACK", "lastSuccessAt": "2026-10-01T20:03:00Z" } ] }
+```
+
+```
+ source  | status  | points_written
+---------+---------+----------------
+ AWATTAR | SUCCESS |             24
+ ENTSOE  | SUCCESS |             96
+```
+
+96 and 24 for the same delivery day: the same auction at both native
+resolutions, stored side by side, never merged.
+
+## A logger took a whole upstream offline
+
+The worst bug in the project so far, and it was a log statement.
+
+Two loggers concatenated `vars.toPersist` with a plain string variable.
+DataWeave then has two media types to reconcile - `application/json` from
+the upstream response and `application/java` from the String - and refuses
+to infer an output type:
+
+```
+Unable to infer a output media type as more than one is being used:
+application/json,application/java
+```
+
+Loggers elsewhere in the same file concatenate ONE variable with string
+literals, so inference has a single media type and they need no directive.
+That is why this had never appeared before.
+
+The timing is the interesting part. The error handler sets `toPersist` to an
+empty Java array on failure, so while every poll was failing the media types
+were homogeneous and the logger worked. **It broke the moment the first poll
+succeeded.** A latent fault that only fires on the success path is close to
+the worst possible ordering: the thing that fixes one bug reveals another,
+and it looks like the fix caused it.
+
+## Why it was worse than a broken log line
+
+The failing logger sat AFTER the `db:insert` and OUTSIDE its try. So:
+
+1. ENTSO-E was fetched, 96 prices were written to `price_point`.
+2. `poll_run` recorded `ENTSOE / SUCCESS / 96`. Committed.
+3. The logger threw.
+4. The error escaped `record-poll-run`, escaped `poll-entsoe`, and aborted
+   the parent flow.
+5. `poll-awattar` was never reached.
+
+For roughly fifteen minutes the system polled once a minute, wrote correct
+prices, and reported `ENTSOE / SUCCESS / 96` every single cycle. By every
+signal it emitted about itself it was healthy. aWATTar had not been polled
+once, and nothing anywhere said so.
+
+**A monitoring table can only record the runs that happen. It cannot report
+the runs that never started.** The query that found it was not "show me the
+errors" - there were none - but "show me both sources", and noticing one of
+them had quietly stopped appearing.
+
+This is the same failure mode as the flat price curve and the shifted cache
+timestamps, in different clothes: output that is well-formed, plausible, and
+wrong. Three times now the fault has been invisible to structural checks and
+caught only by asserting on values - or, here, on a row that should have
+existed and did not.
+
+## Two rules out of it
+
+**Observability must never be able to change the thing it observes.** A log
+statement that can abort a flow is not instrumentation, it is logic. Both
+loggers now carry an explicit `output text/plain` directive.
+
+**Independent sources need independent error boundaries.** The two
+`flow-ref`s in `poll-day-ahead-auction` are each wrapped in their own
+try / on-error-continue. There is no reason a problem reaching ENTSO-E
+should mean aWATTar is never polled, and until this bug the code quietly
+assumed otherwise. The inner handlers already classify real upstream
+failures into `poll_run`, so anything reaching the outer handler is a fault
+in the bookkeeping itself: WARN and continue.
+
+## Deploy, verified rather than assumed
+
+Two full diagnostic cycles were spent on a build whose jar had never been
+copied to `apps/`. The log kept quoting the OLD expression back - the
+`Element DSL` line shows the source of the *running* application, which is
+the fastest way to tell "my fix is wrong" from "my fix is not deployed".
+They look identical from the symptom and need completely different work.
+
+Build and deploy now run as one `&&` chain ending in `echo "JAR COPIED"`, so
+a silent skip is not possible.
