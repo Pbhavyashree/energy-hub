@@ -497,7 +497,7 @@
         </db:bulk-insert>
 
         <logger level="INFO"
-                message="#['Persisted ' ++ (sizeOf(vars.toPersist) as String)
+                message="#['Persisted ' ++ sizeOf(vars.toPersist)
                           ++ ' points zone=' ++ vars.biddingZone]"/>
     </sub-flow>
 
@@ -509,8 +509,27 @@
           mixed, here or anywhere else.
         -->
         <db:select config-ref="priceStore">
+            <!--
+              NO SQL LINE COMMENTS INSIDE db:sql. The DB connector decides
+              the query type from the first token, so a statement that
+              opens with a line comment fails with:
+                "Query type must be one of [SELECT, STORE_PROCEDURE_CALL]"
+              Explanations belong out here, outside the statement.
+
+              (And note this XML comment itself avoids a double hyphen,
+              which XML forbids inside comments - the first attempt at
+              writing this very note broke the build.)
+
+              Timestamps come back as EPOCH SECONDS on purpose. The raw
+              JDBC value arrives without zone information, a naive
+              local-time timestamp, so converting it in DataWeave relabels
+              rather than converts and silently shifts the instant by the
+              local offset. An epoch is just a number: no zone to lose.
+            -->
             <db:sql><![CDATA[
-                SELECT starts_at, ends_at, resolution_minutes,
+                SELECT extract(epoch from starts_at) AS starts_epoch,
+                       extract(epoch from ends_at)   AS ends_epoch,
+                       resolution_minutes,
                        source, price_per_mwh, price_per_kwh, currency
                 FROM price_point
                 WHERE bidding_zone = :zone
@@ -553,8 +572,8 @@
             ---
             if (preferred == null) []
             else (bySource[preferred] map {
-                startsAt: $.starts_at,
-                endsAt: $.ends_at,
+                startsAt: ((($.starts_epoch as Number) * 1000) as DateTime {unit: 'milliseconds'}) >> 'UTC',
+                endsAt: ((($.ends_epoch as Number) * 1000) as DateTime {unit: 'milliseconds'}) >> 'UTC',
                 resolutionMinutes: $.resolution_minutes,
                 pricePerMWh: $.price_per_mwh,
                 pricePerKWh: $.price_per_kwh,

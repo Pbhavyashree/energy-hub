@@ -560,3 +560,112 @@ resolves the spec more leniently.
 **A passing test suite is not a deployment check.** Until there is a smoke
 test that deploys the packaged jar and hits an endpoint, `mvn test` green
 plus a manual deploy is the only honest verification.
+
+---
+
+# Persistence and the degraded-mode cache
+
+The store serves two purposes: the historical record, and the cache the
+process layer falls back to when both upstreams are unreachable. That
+fallback is what makes `source: CACHE` in the canonical model reachable at
+all.
+
+Verified end to end by undeploying both system APIs and calling the process
+API:
+
+```json
+{ "degraded": true, "resolutionMinutes": 15, "source": "CACHE",
+  "points": [{ "startsAt": "2026-09-30T22:00:00Z", ... }] }
+```
+
+Same instant, same string format as the live path produces.
+
+## Schema decisions
+
+**price_point** holds what is true now, keyed on
+`(bidding_zone, starts_at, source)`. Source is in the key because the two
+upstreams publish the same auction at different resolutions and are never
+merged, so ENTSO-E's 22:00 to 22:15 and aWATTar's 22:00 to 23:00 coexist
+rather than fight over one row.
+
+**price_revision** gets a row only when a stored price actually changes.
+ENTSO-E revises published prices occasionally. Overwriting silently would
+lose that; appending every observation would make every read a "latest per
+interval" query. This way reads stay trivial and the question "do they
+revise, and how often?" has a data-backed answer. The audit row is written
+by a BEFORE UPDATE trigger, not by application code, so no future write path
+can forget it.
+
+**poll_run** separates `NO_DATA` from `FAILED` deliberately. "Tomorrow's
+auction has not cleared yet" happens every morning and is normal;
+"ENTSO-E is unreachable" is not. Collapsing them would make /health cry wolf
+daily.
+
+## A failed write never fails a read
+
+The persist call is wrapped in try / on-error-continue. When the database
+was rejecting timestamps, the API kept serving prices correctly and logged
+"Persist failed, serving live data anyway". The caller asked for prices and
+we had them; the storage problem was ours, not theirs.
+
+## Five Mule and JDBC traps, each costing one build
+
+**The JDBC driver must be a `sharedLibrary` in the pom.** Mule isolates each
+plugin's classloader, so without it the app deploys cleanly and then fails at
+runtime with "No suitable driver found". When it is right, the startup banner
+lists it under "Application libraries".
+
+**Element order inside `db:bulk-insert`.** `db:bulk-input-parameters` comes
+BEFORE `db:sql`. It is not valid as an attribute either. The error
+"One of {...parameter-types} is expected" is naming what may follow at that
+point, which means your element belongs earlier, not that it is wrong. Same
+rule bit `http:request`, where headers precede query-params.
+
+**Postgres JDBC rejects ISO-8601 for timestamp parameters.** The driver
+infers a parameter's type from the CAST target and parses the string itself:
+`Bad value for type timestamp/date/time: 2026-09-24T22:00:00Z`. Values go out
+as `yyyy-MM-dd HH:mm:ss` in UTC and the SQL attaches the zone with
+`AT TIME ZONE 'UTC'`.
+
+**A statement cannot open with a SQL line comment.** The DB connector decides
+the query type from the first token:
+`Query type must be one of [SELECT, STORE_PROCEDURE_CALL]`. Explanations go
+in an XML comment outside the statement. Cost two builds, because the first
+failure got attributed to a more interesting theory about the connector
+parsing `:MI` and `:SS` in a to_char format string as named parameters. The
+log had quoted the offending query back, opening with the comment, both
+times.
+
+**XML forbids a double hyphen inside a comment** - including in the comment
+explaining the point above, which is how that one was discovered.
+
+## Timestamps out of the database
+
+The raw JDBC value arrives without zone information: a naive local-time
+timestamp. Converting it in DataWeave with `>> 'UTC'` relabels rather than
+converts, which silently shifts the instant by the local offset. The first
+fix made the string look right while making the value two hours wrong, which
+is worse than the original bug.
+
+Fix: have Postgres return `extract(epoch from starts_at)`. An epoch is a
+number - no colons for the parameter parser to misread, no zone to lose - and
+DataWeave converts it back with the same `{unit: 'milliseconds'}` pattern the
+aWATTar mapper already uses.
+
+The principle: a canonical model that only holds when the weather is good is
+not canonical. The cache path is exactly where that drift hides, because it
+is the path nobody exercises.
+
+## Metaspace
+
+Repeated hot redeploys exhaust metaspace in a long-running CE runtime. After
+a dozen redeploys the runtime threw `OutOfMemoryError: Metaspace`, wrote two
+240 MB heap dumps, and started failing deploys in ways that looked like
+configuration errors - one app vanished from the deployment list entirely and
+sent the investigation sideways.
+
+Default in `conf/wrapper.conf` is `-XX:MaxMetaspaceSize=256m`; raised to
+512m. During heavy iteration, restart the runtime periodically rather than
+assuming a deploy failure means broken code. Worth remembering for
+deployment: three Mule apps in one CE runtime on a small VPS will hit exactly
+this.
