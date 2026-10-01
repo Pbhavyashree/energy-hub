@@ -74,7 +74,23 @@ fun cheapestWindow(points, hours, notBefore) = do {
         if (perWindow < 1 or sizeOf(eligible) < perWindow)
             null
         else do {
-            var dayMean = mean(eligible map $.pricePerKWh)
+            /*
+             * The day mean is taken over ALL points, not over `eligible`.
+             *
+             * `eligible` is the notBefore-filtered set, and it is the right
+             * basis for CHOOSING the window - you cannot run an appliance in
+             * the past. It is the wrong basis for the comparison, because
+             * "savingVsDayMean" claims to measure against the day. Taken over
+             * the filtered set it measures against whatever is left, so late
+             * in the evening, when only a few intervals remain, the best
+             * window sits near the mean of those few and the saving collapses
+             * towards zero regardless of how cheap it actually is.
+             *
+             * Unreachable until something passed notBefore, which nothing did
+             * until the experience layer started asking "when should I run
+             * this" rather than "which hours were cheapest".
+             */
+            var dayMean = mean(points map $.pricePerKWh)
             var windows = (0 to (sizeOf(eligible) - perWindow)) map ((i) -> do {
                 var slice = eligible[i to (i + perWindow - 1)]
                 ---

@@ -771,3 +771,90 @@ They look identical from the symptom and need completely different work.
 
 Build and deploy now run as one `&&` chain ending in `echo "JAR COPIED"`, so
 a silent skip is not possible.
+
+---
+
+# Experience API
+
+A fourth module, serving one consumer: a household app. It calls the
+process API and nothing else - no database, no credentials, no knowledge
+that ENTSO-E or aWATTar exist.
+
+```json
+{ "at": "22:30", "cents": 20.39, "band": "NORMAL",
+  "verdict": "Nothing unusual either way.", "estimated": false }
+```
+
+## It defines its own types
+
+The other three modules copy `shared-specs/energy-types.raml` in at build
+time. This one deliberately does not, and the absent `maven-resources-plugin`
+is the point rather than an oversight: a household app should not be coupled
+to the shape of a wholesale market document. If a canonical field is renamed,
+the process layer changes and this spec does not. That is the whole reason
+the layer exists.
+
+## What "cheap" means
+
+The one judgement this layer is allowed to make. Three candidates:
+
+| Rule | Why not |
+|---|---|
+| Fixed threshold ("cheap is under 5 ct") | Wrong the first time the market moves; would label an entire quiet week CHEAP. |
+| Percentage of the day's mean | Breaks on negative prices, which German day-ahead produces regularly. As the mean nears zero the ratio explodes; once it goes negative the comparison inverts and the cheapest hours get labelled EXPENSIVE. |
+| **Rank within the day, in terciles** | Chosen. Ordinal, so it survives both. CHEAP always describes about a third of the day, which is what makes the label actionable. |
+
+## Three bugs, all on first run
+
+**`ns` is a reserved word in DataWeave.** It is the namespace-declaration
+keyword - the same `ns` as in the ENTSO-E mapper - so `fun total(ns)` fails
+to parse. The error points at the column where the parameter name starts and
+quotes a generic `fun a() = 1` rather than naming the collision:
+`Invalid input 'n', expected missing ')' for the function parameters`.
+
+**`attributes` is replaced by every connector operation.** The flow read
+`attributes.queryParams.hours` in a sub-flow that ran AFTER an
+`http:request`, by which point the listener's attributes were gone and
+replaced by the HTTP response's. It does not fail - it quietly returns
+nothing, the `default` takes over, and `?hours=3` produces a two-hour answer.
+Query parameters are now read at the top of the route flow, before anything
+else runs.
+
+**A window in the past.** At 22:39 the API recommended 13:30 to 15:30.
+Correct arithmetic, correct formatting, useless advice. The process layer
+offers `notBefore` and is right to leave it optional - "which hours were
+cheapest today" is a reporting question - but "when should I run the
+dishwasher" is a question about the future. Choosing for one consumer is
+exactly what an experience layer is for.
+
+## The bug the new consumer exposed
+
+Passing `notBefore` for the first time reached a bug that had been sitting in
+`cheapestWindow` for days with tests passing:
+
+```dataweave
+var dayMean = mean(eligible map $.pricePerKWh)
+```
+
+`eligible` is the notBefore-filtered set. It is the right basis for CHOOSING
+a window - you cannot run an appliance in the past - and the wrong basis for
+the comparison, because the field is called `savingVsDayMean` and claims to
+measure against the day. Taken over the filtered set it measures against
+whatever is left, so late in the evening the best remaining window sits near
+the mean of the few remaining intervals and the saving collapses toward zero
+no matter how cheap it is. Observed: `averageCents: 18.64` against a day mean
+of `19.52` reported as `savingPercent: 0`. After the fix, 5.
+
+Nothing had ever passed `notBefore`, so the parameter's whole code path was
+unexercised while the suite stayed green. **A new client asking a different
+question is one of the better ways to find out what an API actually does** -
+and the six existing MUnit tests still pass, because they all pass
+`notBefore` as null, where `eligible` and `points` are the same list.
+
+## Still wrong, and known
+
+`/best-time` only ever looks at today. At 22:42 it correctly reports that no
+three-hour window remains - but tomorrow's prices were published at 13:00 and
+are already in the database, so the useful answer is "03:00 tomorrow" rather
+than a refusal. The canonical model thinks in delivery days because the
+market does; a person at 22:42 does not. Next change.

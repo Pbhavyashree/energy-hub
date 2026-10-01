@@ -1,0 +1,25 @@
+# Non-secret configuration. Every value must be QUOTED - Mule's YAML
+# property reader accepts strings only, and an unquoted number stops the
+# application deploying.
+
+api:
+  port: "8093"
+
+# This layer talks to the process API and to nothing else. It has no
+# database, no upstream credentials, and no knowledge that ENTSO-E or
+# aWATTar exist - which is the point of the layer.
+process:
+  host: "localhost"
+  port: "8090"
+  basePath: "/api/prc/energy/v1"
+  timeoutMs: "20000"
+
+home:
+  # A household is in one bidding zone. Making the caller supply it would
+  # be exposing a market concept to someone who just wants to know whether
+  # now is a good time to run the dishwasher, so it is configuration here
+  # rather than a query parameter.
+  biddingZone: "DE_LU"
+  timeZone: "Europe/Berlin"
+  # Default appliance run length for /best-time, in hours.
+  defaultHours: "2"

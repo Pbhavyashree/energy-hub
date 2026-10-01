@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core
+        http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http
+        http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit
+        http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd">
+
+    <configuration-properties file="config.yaml"/>
+
+    <http:listener-config name="home-httpListener">
+        <http:listener-connection host="0.0.0.0" port="${api.port}"/>
+    </http:listener-config>
+
+    <!--
+      One upstream, and it is the process API. This layer never calls a
+      system API or the database directly. If it did, the layering would
+      be decoration rather than structure.
+    -->
+    <http:request-config name="process-api">
+        <http:request-connection host="${process.host}" port="${process.port}"/>
+    </http:request-config>
+
+    <apikit:config name="home-config"
+                   api="api/energy-home-api.raml"
+                   outboundHeadersMapName="outboundHeaders"
+                   httpStatusVarName="httpStatus"/>
+
+    <!-- ============================================================
+         Main flow
+         ============================================================ -->
+
+    <flow name="home-main">
+        <http:listener config-ref="home-httpListener" path="/api/exp/home/v1/*">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:error-response>
+        </http:listener>
+
+        <apikit:router config-ref="home-config"/>
+
+        <error-handler>
+            <on-error-propagate type="APIKIT:BAD_REQUEST">
+                <set-variable variableName="httpStatus" value="400"/>
+                <set-variable variableName="problemCode" value="BAD_REQUEST"/>
+                <set-variable variableName="problemText"
+                              value="That request was not something this API understands."/>
+                <flow-ref name="build-problem"/>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_FOUND">
+                <set-variable variableName="httpStatus" value="404"/>
+                <set-variable variableName="problemCode" value="NOT_FOUND"/>
+                <set-variable variableName="problemText" value="No such endpoint."/>
+                <flow-ref name="build-problem"/>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:METHOD_NOT_ALLOWED">
+                <set-variable variableName="httpStatus" value="405"/>
+                <set-variable variableName="problemCode" value="METHOD_NOT_ALLOWED"/>
+                <set-variable variableName="problemText" value="That method is not allowed here."/>
+                <flow-ref name="build-problem"/>
+            </on-error-propagate>
+
+            <on-error-propagate type="HOME:NO_DATA">
+                <set-variable variableName="httpStatus" value="404"/>
+                <set-variable variableName="problemCode" value="NO_DATA"/>
+                <set-variable variableName="problemText"
+                              value="#[error.description default 'No price information for that request.']"/>
+                <flow-ref name="build-problem"/>
+            </on-error-propagate>
+
+            <!--
+              Everything else becomes 503 with the same sentence. The
+              caller is a household app: it cannot act differently on a
+              timeout than on a 502 from a market operator, so inventing
+              a distinction would be noise. The detail goes to the log,
+              where someone can actually use it.
+            -->
+            <on-error-propagate type="ANY" logException="true">
+                <set-variable variableName="httpStatus" value="503"/>
+                <set-variable variableName="problemCode" value="PRICES_UNAVAILABLE"/>
+                <set-variable variableName="problemText"
+                              value="Prices are not available right now. Please try again shortly."/>
+                <flow-ref name="build-problem"/>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <sub-flow name="build-problem">
+        <set-payload value="#[%dw 2.0
+            output application/json
+            ---
+            {
+                error:   vars.problemCode default 'UNKNOWN',
+                message: vars.problemText default 'Something went wrong.'
+            }]"/>
+    </sub-flow>
+
+    <!-- ============================================================
+         Routes
+         ============================================================ -->
+
+    <flow name="get:\now:home-config">
+        <flow-ref name="fetch-today-series"/>
+
+        <set-payload value="#[%dw 2.0
+            import nowViewOf, priceLadder, covering from modules::HomeView
+            output application/java
+            var points = vars.series.points default []
+            ---
+            nowViewOf(covering(points, now() >> 'UTC'),
+                      priceLadder(points),
+                      vars.series.degraded default false)]"/>
+
+        <choice>
+            <when expression="#[payload == null]">
+                <raise-error type="HOME:NO_DATA"
+                             description="No price is published for right now."/>
+            </when>
+        </choice>
+
+        <set-payload value="#[%dw 2.0 output application/json --- payload]"/>
+    </flow>
+
+    <flow name="get:\today:home-config">
+        <flow-ref name="fetch-today-series"/>
+        <flow-ref name="fetch-best-window"/>
+
+        <set-payload value="#[%dw 2.0
+            import todayViewOf from modules::HomeView
+            output application/json
+            ---
+            todayViewOf(vars.series, vars.window, now() >> 'UTC')]"/>
+    </flow>
+
+    <flow name="get:\best-time:home-config">
+        <!--
+          Read the query parameter HERE, before anything else runs.
+
+          `attributes` is replaced by every connector operation, so the
+          moment fetch-today-series issues an http:request the listener's
+          attributes are gone and replaced by the HTTP response's. Reading
+          attributes.queryParams after that point does not fail - it
+          quietly returns nothing and the default takes over, so
+          ?hours=3 silently produced a two-hour answer.
+        -->
+        <set-variable variableName="windowHours"
+                      value="#[attributes.queryParams.hours default '${home.defaultHours}']"/>
+
+        <flow-ref name="fetch-today-series"/>
+        <flow-ref name="fetch-best-window"/>
+
+        <choice>
+            <when expression="#[vars.window == null]">
+                <raise-error type="HOME:NO_DATA"
+                             description="There are not enough published prices left today for a window that long."/>
+            </when>
+        </choice>
+
+        <set-payload value="#[%dw 2.0
+            import bestTimeOf from modules::HomeView
+            output application/json
+            ---
+            bestTimeOf(vars.window, vars.series.degraded default false)]"/>
+    </flow>
+
+    <!-- ============================================================
+         Upstream calls
+         ============================================================ -->
+
+    <sub-flow name="fetch-today-series">
+        <!--
+          ELEMENT ORDER: headers before query-params, response-validator
+          last. The XSD enforces it, and the resulting error names what
+          may follow at that point rather than what is wrong.
+        -->
+        <http:request method="GET"
+                      config-ref="process-api"
+                      path="${process.basePath}/prices"
+                      responseTimeout="${process.timeoutMs}">
+            <http:query-params><![CDATA[#[{ "biddingZone": p('home.biddingZone') }]]]></http:query-params>
+        </http:request>
+
+        <!--
+          Materialise the response before anything traverses it.
+
+          The view logic walks the points array several times - once to
+          build the price ladder, once to find the covering interval,
+          once to build the slots. A streamed payload is consumed by the
+          first traversal and the rest silently see nothing. That exact
+          bug produced a flat price curve in the ENTSO-E module and took
+          a day to find, because the output stayed well-formed the whole
+          time. Reading it into memory once costs nothing at this size.
+        -->
+        <set-variable variableName="series" value="#[%dw 2.0
+            output application/java
+            ---
+            payload]"/>
+    </sub-flow>
+
+    <sub-flow name="fetch-best-window">
+        <!--
+          Taken from a variable, never from attributes: by the time this
+          runs, an http:request has already replaced them. See the comment
+          in get:\best-time.
+        -->
+        <set-variable variableName="windowHours"
+                      value="#[vars.windowHours default '${home.defaultHours}']"/>
+
+        <http:request method="GET"
+                      config-ref="process-api"
+                      path="${process.basePath}/prices/cheapest-window"
+                      responseTimeout="${process.timeoutMs}">
+            <!--
+              notBefore is not optional for THIS consumer, whatever the
+              process API thinks. "The cheapest four hours of the day" is a
+              reporting answer; "when should I run the dishwasher" is a
+              question about the future, and a window that closed nine
+              hours ago answers it with arithmetic that is correct and
+              advice that is useless.
+
+              The process layer is right to leave it optional - an analyst
+              asking which hours were cheapest today wants the whole day.
+              Choosing for one consumer is this layer's job.
+            -->
+            <http:query-params><![CDATA[#[{
+                "biddingZone": p('home.biddingZone'),
+                "hours": vars.windowHours as String,
+                "notBefore": (now() >> 'UTC') as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"}
+            }]]]></http:query-params>
+            <!--
+              404 is an ANSWER here, not a failure: the process layer
+              returns it when the series is too short or has mixed
+              resolutions, because it refuses to average across
+              resolutions rather than guess. Treating it as an error
+              would turn a correct refusal into a 503.
+            -->
+            <http:response-validator>
+                <http:success-status-code-validator values="200,404"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable variableName="windowStatus" value="#[attributes.statusCode]"/>
+
+        <set-variable variableName="window" value="#[%dw 2.0
+            output application/java
+            ---
+            if (vars.windowStatus == 200) payload else null]"/>
+    </sub-flow>
+
+</mule>
