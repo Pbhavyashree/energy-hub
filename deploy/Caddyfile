@@ -1,0 +1,44 @@
+# Reverse proxy and automatic TLS.
+#
+# Caddy obtains and renews a Let's Encrypt certificate on its own, with no
+# certbot, no cron job and no renewal to forget. It needs ports 80 and 443
+# reachable from the internet: 80 for the ACME HTTP challenge, 443 to
+# serve. If 80 is closed the certificate is never issued and the site
+# simply never comes up - that is the one failure mode worth knowing.
+#
+# DOMAIN comes from deploy/.env.
+
+{$DOMAIN} {
+	encode gzip
+
+	# The experience API is what a person or an app calls, so it gets the
+	# shortest path.
+	handle /api/exp/* {
+		reverse_proxy energy-hub:8093
+	}
+
+	# The process API is exposed for /health, which UptimeRobot watches.
+	# It also serves /prices and friends, which is fine - it speaks the
+	# canonical model and holds no credentials.
+	handle /api/prc/* {
+		reverse_proxy energy-hub:8090
+	}
+
+	# Anything else gets a pointer rather than a 404 wall, so someone who
+	# opens the bare domain sees what this is.
+	handle {
+		header Content-Type application/json
+		respond `{"service":"energy-hub","try":"/api/exp/home/v1/now"}` 200
+	}
+
+	# The system APIs on 8091 and 8092 are deliberately absent. They speak
+	# the upstreams' dialects and hold the ENTSO-E token; nothing outside
+	# this network should reach them. They are not published by compose
+	# either - this is the second of two deliberate omissions, not an
+	# oversight.
+
+	log {
+		output stdout
+		format console
+	}
+}

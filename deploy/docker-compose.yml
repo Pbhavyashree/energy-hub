@@ -61,5 +61,25 @@ services:
       # business being reachable from outside.
     restart: unless-stopped
 
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - energy-hub
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN must be set in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates live here. Without a named volume Caddy re-requests a
+      # certificate on every recreate and will hit Let's Encrypt rate
+      # limits (5 per domain per week) surprisingly fast.
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:
