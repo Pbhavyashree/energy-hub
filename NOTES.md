@@ -947,3 +947,65 @@ architecture-specific. So a wrapper-free launch that boots on Windows x86
 boots on ARM Linux for the same reasons. Testing it locally turned "will
 this work on hardware I have not provisioned yet" into a question that
 could be answered in one command, before signing up for anything.
+
+---
+
+# Deployed
+
+2026-10-02. Live on Oracle Cloud Always Free, Frankfurt:
+
+```
+http://132.226.207.74:8093/api/exp/home/v1/now
+http://132.226.207.74:8090/api/prc/energy/v1/health
+```
+
+Four Mule applications and Postgres, in two containers, on one ARM
+instance. Cost: nothing.
+
+## Why ARM, and what it cost to get there
+
+Free compute is ARM. Oracle's always-free tier is 4 OCPUs and 24GB of
+Ampere against 1/8 of an OCPU and 1GB for its x86 shape - and four Mule
+apps do not fit in the latter. The ARM shape was not the adventurous
+choice, it was the only one.
+
+Which made the Tanuki wrapper a blocker rather than a curiosity. Solving
+it (see "Running Mule CE without the Tanuki wrapper") was what made the
+free tier usable at all, and the fix was verified on a Windows laptop
+before any server existed - the runtime is bytecode, so a wrapper-free
+launch that boots on x86 boots on aarch64 for the same reasons.
+
+## Two firewalls, not one
+
+Oracle's Ubuntu images REJECT everything except port 22 in the host's
+iptables INPUT chain. That is SEPARATE from the VCN security list in the
+console. Opening a port in one place looks correct and still times out.
+`deploy/server-setup.sh` handles the host side; the console handles the
+other.
+
+Worth knowing for the container case specifically: Docker's published
+ports are DNAT'd and traverse FORWARD, not INPUT, so host INPUT rules do
+not govern container traffic. If they ever need adjusting, the chain to
+use is DOCKER-USER, which Docker leaves alone for exactly this.
+
+## The create-instance form cannot build its own network
+
+The inline "Create new virtual cloud network" path produced a subnet with
+an empty IPv4 prefix list, which left the "assign a public IPv4 address"
+toggle permanently disabled and unexplained. The VCN Wizard
+(Networking > Virtual Cloud Networks > Start VCN Wizard > VCN with
+Internet Connectivity) builds the VCN, subnets, internet gateway, NAT
+gateway and route tables correctly in one step. Use it first, then select
+the existing VCN when creating the instance.
+
+## Testing from the right machine
+
+Three separate times a verification ran on the wrong host - the laptop
+when it should have been the server, or the server curling its own public
+IP when the question was whether the internet could reach it. A box can
+always reach itself; that test proves nothing about a firewall.
+
+The honest external check was a phone with wifi off.
+
+Two prompts that look alike, `bhavy@Pumpkin` and `ubuntu@energy-hub`, cost
+more time today than any code did.
