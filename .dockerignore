@@ -1,0 +1,16 @@
+# Keep the build context small and deterministic. Everything the image
+# needs is source; anything already built locally would only be stale.
+**/target/
+**/.mule/
+**/*.log
+**/munit.log
+
+# The RAML library copies the build regenerates from shared-specs.
+sys-api-*/src/main/resources/api/library/
+process-api/src/main/resources/api/library/
+
+.git/
+.github/
+NOTES.md
+README.md
+deploy/.env

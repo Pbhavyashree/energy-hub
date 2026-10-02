@@ -1,0 +1,65 @@
+# energy-hub, as deployed.
+#
+#   docker compose up -d --build
+#
+# Secrets come from a .env file beside this one, which is gitignored.
+# Copy .env.example and fill it in.
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: energyhub
+      POSTGRES_USER: postgres
+      # No default on purpose: compose refuses to start rather than
+      # silently bringing up a database with a guessable password.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in deploy/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Applied once, on an empty data directory. The same schema.sql the
+      # local database was built from - one definition, not two that drift.
+      - ../process-api/src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d energyhub"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    # Not published. Postgres is reachable only from the compose network,
+    # so the only way in is through the APIs.
+    expose:
+      - "5432"
+
+  energy-hub:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    depends_on:
+      postgres:
+        # Waits for pg_isready, not merely for the container to exist.
+        # Without this the runtime starts first, the pool fails, and the
+        # first poll records FAILED for no real reason.
+        condition: service_healthy
+    environment:
+      ENTSOE_TOKEN: ${ENTSOE_TOKEN:?ENTSOE_TOKEN must be set in deploy/.env}
+      # `postgres` is the compose service name. The applications' own
+      # config.yaml says localhost, which is right for a laptop; this
+      # overrides it exactly as -Ddb.url would.
+      DB_URL: jdbc:postgresql://postgres:5432/energyhub
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD}
+      MULE_HEAP: ${MULE_HEAP:-2048}
+      MULE_METASPACE: ${MULE_METASPACE:-768}
+    ports:
+      # Process API: /health, and what UptimeRobot watches.
+      - "8090:8090"
+      # Experience API: the one a person or an app would actually call.
+      - "8093:8093"
+      # 8091 and 8092 are intentionally absent. The system APIs speak the
+      # upstreams' dialects and hold the ENTSO-E token; they have no
+      # business being reachable from outside.
+    restart: unless-stopped
+
+volumes:
+  pgdata:

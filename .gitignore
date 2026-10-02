@@ -5,3 +5,7 @@ secrets.yaml
 target/
 munit.log
 sys-api-*/src/main/resources/api/library/
+process-api/src/main/resources/api/library/
+
+# Deployment secrets. The .env.example beside it is the committed one.
+deploy/.env
