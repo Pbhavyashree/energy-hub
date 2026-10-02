@@ -20,6 +20,19 @@ REPO_DIR="$HOME/energy-hub"
 
 say() { printf '\n=== %s ===\n' "$1"; }
 
+# A script meant to be piped into bash will eventually be piped into the
+# wrong bash. Refuse early and say so, rather than part-running against a
+# laptop and leaving it in a half-configured state.
+if [ "$(uname -s)" != "Linux" ]; then
+    echo "ERROR: this provisions the Ubuntu SERVER, not your workstation." >&2
+    echo "       Detected: $(uname -s). Run it over ssh on the instance." >&2
+    exit 1
+fi
+
+# $USER is set by a login shell but not by every environment a piped
+# script lands in, and `set -u` turns that into a crash halfway through.
+CURRENT_USER="${USER:-$(id -un)}"
+
 # ---------------------------------------------------------------
 # 1. Docker
 # ---------------------------------------------------------------
@@ -48,9 +61,9 @@ https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_C
 fi
 
 # Lets this user run docker without sudo. Needs a new login to take effect.
-if ! id -nG "$USER" | grep -qw docker; then
-    say "Adding $USER to the docker group"
-    sudo usermod -aG docker "$USER"
+if ! id -nG "$CURRENT_USER" | grep -qw docker; then
+    say "Adding $CURRENT_USER to the docker group"
+    sudo usermod -aG docker "$CURRENT_USER"
     NEEDS_RELOGIN=1
 fi
 
