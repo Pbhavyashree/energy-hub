@@ -341,8 +341,19 @@
                 <on-error-continue logException="true">
                     <set-variable variableName="toPersist" value="#[[]]"/>
                     <set-variable variableName="pollStatus" value="FAILED"/>
+                    <!--
+                      NOT `error.description default '...'`. `default`
+                      substitutes only for null, never for an empty
+                      string, so an empty description sailed through and
+                      nine ENTSO-E failures were recorded over one
+                      weekend with no reason at all. See failureDetail.
+                    -->
                     <set-variable variableName="pollDetail"
-                                  value="#[(error.description default 'Unknown failure')[0 to 480]]"/>
+                                  value="#[%dw 2.0
+                                      import failureDetail from modules::PriceLogic
+                                      output application/java
+                                      ---
+                                      failureDetail(error)]"/>
                 </on-error-continue>
             </error-handler>
         </try>
@@ -371,8 +382,19 @@
                 <on-error-continue logException="true">
                     <set-variable variableName="toPersist" value="#[[]]"/>
                     <set-variable variableName="pollStatus" value="FAILED"/>
+                    <!--
+                      NOT `error.description default '...'`. `default`
+                      substitutes only for null, never for an empty
+                      string, so an empty description sailed through and
+                      nine ENTSO-E failures were recorded over one
+                      weekend with no reason at all. See failureDetail.
+                    -->
                     <set-variable variableName="pollDetail"
-                                  value="#[(error.description default 'Unknown failure')[0 to 480]]"/>
+                                  value="#[%dw 2.0
+                                      import failureDetail from modules::PriceLogic
+                                      output application/java
+                                      ---
+                                      failureDetail(error)]"/>
                 </on-error-continue>
             </error-handler>
         </try>

@@ -51,14 +51,19 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       MULE_HEAP: ${MULE_HEAP:-2048}
       MULE_METASPACE: ${MULE_METASPACE:-768}
-    ports:
-      # Process API: /health, and what UptimeRobot watches.
-      - "8090:8090"
-      # Experience API: the one a person or an app would actually call.
-      - "8093:8093"
-      # 8091 and 8092 are intentionally absent. The system APIs speak the
-      # upstreams' dialects and hold the ENTSO-E token; they have no
-      # business being reachable from outside.
+    # NOTHING is published here any more. Caddy is the only way in, which
+    # means everything from outside is TLS, and the plaintext 8090/8093
+    # endpoints that were briefly public are gone.
+    #
+    # The ports stay reachable BY NAME on the compose network
+    # (energy-hub:8090, energy-hub:8093) because that is how Caddy proxies
+    # to them, and that network is not routable from outside the host.
+    #
+    # 8091 and 8092 were never published either: the system APIs speak the
+    # upstreams' dialects and hold the ENTSO-E token.
+    expose:
+      - "8090"
+      - "8093"
     restart: unless-stopped
 
   caddy:

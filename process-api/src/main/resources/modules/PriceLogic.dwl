@@ -163,3 +163,34 @@ fun seriesSummary(points) = {
     startsAt: if (isEmpty(points)) null else (points orderBy $.startsAt)[0].startsAt,
     endsAt: if (isEmpty(points)) null else (points orderBy $.startsAt)[-1].endsAt
 }
+
+/**
+ * Build a poll_run detail string that is never empty.
+ *
+ * `default` substitutes only for null, NEVER for an empty string. So
+ *
+ *     error.description default 'Unknown failure'
+ *
+ * passes an empty description straight through, and that is how nine
+ * ENTSO-E failures came to be recorded over one weekend with FAILED in
+ * the status column and nothing whatsoever in detail. The table knew
+ * something had broken and could not say what.
+ *
+ * The error TYPE is always populated and is the single most diagnostic
+ * field, so it leads. Description and detailedDescription are appended
+ * only when they actually carry text.
+ *
+ * A failure record with an empty reason is not a failure record.
+ */
+fun failureDetail(err) = do {
+    var kind = (err.errorType.namespace default '?')
+               ++ ':' ++ (err.errorType.identifier default '?')
+    var desc = err.description default ''
+    var detailed = err.detailedDescription default ''
+    var body =
+        if (!isEmpty(desc)) desc
+        else if (!isEmpty(detailed)) detailed
+        else 'no description supplied by the connector'
+    ---
+    (kind ++ ' - ' ++ body)[0 to 480]
+}
