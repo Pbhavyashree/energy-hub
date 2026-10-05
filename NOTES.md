@@ -1009,3 +1009,89 @@ The honest external check was a phone with wifi off.
 
 Two prompts that look alike, `bhavy@Pumpkin` and `ubuntu@energy-hub`, cost
 more time today than any code did.
+
+---
+
+# Three days unattended, and what it reported
+
+First real test: 2 to 5 October, nobody watching.
+
+```
+ source  | status  | runs
+---------+---------+------
+ AWATTAR | NO_DATA |    3
+ AWATTAR | SUCCESS |   38
+ ENTSOE  | FAILED  |    9
+ ENTSOE  | NO_DATA |    6
+ ENTSOE  | SUCCESS |   26
+```
+
+Three things worth drawing out of that table.
+
+## The fallback was more reliable than the primary
+
+aWATTar succeeded 38 times against ENTSO-E's 26. For nine hours the
+primary was down and the service kept answering from the fallback, at
+hourly resolution, flagged `degraded: true`. Nobody noticed, because
+nothing broke - which is the entire argument for having a fallback that
+is labelled rather than silently substituted.
+
+## NO_DATA earned its place
+
+Six ENTSO-E and three aWATTar NO_DATA rows, all early in the day: the
+delivery-day auction had not cleared yet. Exactly as predicted when the
+schema was written.
+
+Had NO_DATA been collapsed into FAILED, this table would show 15 ENTSO-E
+failures instead of 9, and six of them would be normal market behaviour.
+Any alert built on that column would have fired every single morning and
+been muted within a week.
+
+## The failures recorded no reason at all
+
+All nine FAILED rows had an EMPTY `detail`. The cause:
+
+```dataweave
+(error.description default 'Unknown failure')[0 to 480]
+```
+
+`default` substitutes only for null, NEVER for an empty string. An empty
+description sails straight through, and the column stores "".
+
+So the monitoring table - built specifically so /health would have
+something real to say - recorded nine failures and could not say what any
+of them were. That is the same failure mode as the flat price curve, the
+shifted cache timestamps and the vanished aWATTar poll: output that is
+structurally correct and carries no information. Fourth time.
+
+The fix leads with the error TYPE, which is always populated and is the
+most diagnostic single field, and appends description or
+detailedDescription only when they contain text:
+
+```dataweave
+fun failureDetail(err) = do {
+    var kind = (err.errorType.namespace default '?')
+               ++ ':' ++ (err.errorType.identifier default '?')
+    var desc = err.description default ''
+    var detailed = err.detailedDescription default ''
+    var body =
+        if (!isEmpty(desc)) desc
+        else if (!isEmpty(detailed)) detailed
+        else 'no description supplied by the connector'
+    ---
+    (kind ++ ' - ' ++ body)[0 to 480]
+}
+```
+
+**A failure record with an empty reason is not a failure record.** Worth
+testing the error path with a deliberately broken upstream rather than
+waiting three days to find out it logs nothing.
+
+## Still unknown
+
+Whether those nine failures are ENTSO-E gateway flakiness or a fault on
+this side. The timing is scattered - 11:00, 18:00, 19:00 on the 3rd,
+14:00 through 21:00 on the 4th, 17:00 on the 5th - which argues for
+upstream, but that is a guess until the next failure records a reason.
+
+Which is the point: it is a guess *because* the detail was empty.
