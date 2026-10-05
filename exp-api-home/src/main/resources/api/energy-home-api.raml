@@ -82,6 +82,13 @@ types:
     type: object
     description: When to run something for a given number of hours.
     properties:
+      day:
+        type: string
+        enum: [today, tomorrow]
+        description: |
+          Which delivery day the window falls in. Clock times alone are
+          ambiguous - "03:00" asked at eleven at night could be four
+          hours away or twenty-eight.
       from: string
       to: string
       hours: integer
@@ -91,6 +98,7 @@ types:
         description: How far below the day's average this window is.
       estimated: boolean
     example:
+      day: today
       from: "13:15"
       to: "15:15"
       hours: 2
@@ -170,7 +178,7 @@ types:
         body: BestTime
       404:
         description: |
-          Not enough published intervals for a window that long.
+          No window that long is published for today or tomorrow.
         body: Problem
       503:
         body: Problem

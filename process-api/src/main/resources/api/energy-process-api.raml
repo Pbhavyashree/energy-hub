@@ -106,6 +106,18 @@ traits:
           type: datetime
           required: false
           description: Ignore intervals starting before this instant.
+        periodStart:
+          type: datetime
+          required: false
+          description: |
+            Inclusive. Defaults to the start of the current delivery day.
+            Supplied by a consumer that wants to search a day other than
+            today - a household asking late in the evening wants
+            tomorrow's auction, which has been published since 13:00.
+        periodEnd:
+          type: datetime
+          required: false
+          description: Exclusive. Defaults to 24 hours after periodStart.
       responses:
         200:
           body: energy.CheapestWindow

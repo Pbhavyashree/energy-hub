@@ -138,7 +138,7 @@
             import todayViewOf from modules::HomeView
             output application/json
             ---
-            todayViewOf(vars.series, vars.window, now() >> 'UTC')]"/>
+            todayViewOf(vars.series, vars.window, now() >> 'UTC', vars.windowDay default 'today')]"/>
     </flow>
 
     <flow name="get:\best-time:home-config">
@@ -161,7 +161,7 @@
         <choice>
             <when expression="#[vars.window == null]">
                 <raise-error type="HOME:NO_DATA"
-                             description="There are not enough published prices left today for a window that long."/>
+                             description="No published window that long is available today or tomorrow."/>
             </when>
         </choice>
 
@@ -169,7 +169,7 @@
             import bestTimeOf from modules::HomeView
             output application/json
             ---
-            bestTimeOf(vars.window, vars.series.degraded default false)]"/>
+            bestTimeOf(vars.window, vars.series.degraded default false, vars.windowDay default 'today')]"/>
     </flow>
 
     <!-- ============================================================
@@ -254,6 +254,78 @@
             output application/java
             ---
             if (vars.windowStatus == 200) payload else null]"/>
+
+        <set-variable variableName="windowDay" value="today"/>
+
+        <!--
+          Nothing left today is not the same as no answer.
+
+          A delivery day is a market concept. A person asking at 23:00
+          when to run the dishwasher does not mean "in the next hour" -
+          they mean tonight or tomorrow morning. Tomorrow's auction
+          cleared around 12:45 and has been published since, so the
+          useful answer exists; it is simply in the next delivery day.
+
+          So: today constrained to the future first, and only if that
+          leaves nothing, tomorrow in full. Two calls, each inside ONE
+          delivery day - which deliberately avoids asking ENTSO-E for a
+          range spanning two auctions, where a single response would
+          carry two documents and the sequence-selection rule has never
+          been tested.
+        -->
+        <choice>
+            <when expression="#[vars.window == null]">
+                <flow-ref name="fetch-tomorrow-window"/>
+            </when>
+        </choice>
+    </sub-flow>
+
+    <sub-flow name="fetch-tomorrow-window">
+        <!--
+          Tomorrow's delivery day in BERLIN, not UTC: a delivery day is
+          local, so a UTC-midnight window straddles two of them. Built by
+          formatting and reparsing because `as Date as DateTime` is not a
+          valid coercion, and the offset is taken from the instant itself
+          so it stays correct across the October changeover.
+        -->
+        <set-variable variableName="tomorrowStart" value="#[%dw 2.0
+            output application/java
+            var berlinTomorrow = (now() + |P1D|) >> 'Europe/Berlin'
+            ---
+            (berlinTomorrow as String {format: 'yyyy-MM-dd'}
+             ++ 'T00:00:00'
+             ++ (berlinTomorrow as String {format: 'XXX'})) as DateTime]"/>
+
+        <http:request method="GET"
+                      config-ref="process-api"
+                      path="${process.basePath}/prices/cheapest-window"
+                      responseTimeout="${process.timeoutMs}">
+            <!--
+              No notBefore here: the whole of tomorrow is in the future,
+              so constraining it would be meaningless.
+            -->
+            <http:query-params><![CDATA[#[{
+                "biddingZone": p('home.biddingZone'),
+                "hours": vars.windowHours as String,
+                "periodStart": (vars.tomorrowStart as DateTime) as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"},
+                "periodEnd": ((vars.tomorrowStart as DateTime) + |P1D|) as String {format: "yyyy-MM-dd'T'HH:mm:ssXXX"}
+            }]]]></http:query-params>
+            <http:response-validator>
+                <http:success-status-code-validator values="200,404"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable variableName="windowStatus" value="#[attributes.statusCode]"/>
+
+        <set-variable variableName="window" value="#[%dw 2.0
+            output application/java
+            ---
+            if (vars.windowStatus == 200) payload else null]"/>
+
+        <set-variable variableName="windowDay" value="#[%dw 2.0
+            output application/java
+            ---
+            if (vars.window != null) 'tomorrow' else 'today']"/>
     </sub-flow>
 
 </mule>

@@ -122,9 +122,15 @@ fun nowViewOf(point, ladder, degraded) =
  * guess there, and this layer passes that refusal through rather than
  * inventing an answer.
  */
-fun bestTimeOf(w, degraded) =
+fun bestTimeOf(w, degraded, day = 'today') =
     if (w == null) null
     else {
+        /*
+         * `day` matters because the clock times alone are ambiguous.
+         * "03:00" at eleven at night could be four hours away or
+         * twenty-eight, and the difference is the whole answer.
+         */
+        day:           day,
         from:          clock(w.startsAt),
         to:            clock(w.endsAt),
         hours:         w.hours,
@@ -133,7 +139,7 @@ fun bestTimeOf(w, degraded) =
         estimated:     degraded default false
     }
 
-fun todayViewOf(series, window, instant) = do {
+fun todayViewOf(series, window, instant, windowDay = 'today') = do {
     var points = series.points default []
     var ladder = priceLadder(points)
     var degraded = series.degraded default false
@@ -143,7 +149,7 @@ fun todayViewOf(series, window, instant) = do {
         averageCents: cents(meanOf(points map $.pricePerKWh)),
         estimated:    degraded,
         now:          nowViewOf(covering(points, instant), ladder, degraded),
-        bestTime:     bestTimeOf(window, degraded),
+        bestTime:     bestTimeOf(window, degraded, windowDay),
         slots:        points map slotOf($, ladder)
     }
 }
