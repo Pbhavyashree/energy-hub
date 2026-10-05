@@ -51,6 +51,11 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       MULE_HEAP: ${MULE_HEAP:-2048}
       MULE_METASPACE: ${MULE_METASPACE:-768}
+      # Alerting. Optional: leave ALERT_NEGATIVE_ENABLED=false in .env and
+      # the flow never fires, so the credentials can stay empty.
+      ALERT_NEGATIVE_ENABLED: ${ALERT_NEGATIVE_ENABLED:-false}
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
     # NOTHING is published here any more. Caddy is the only way in, which
     # means everything from outside is TLS, and the plaintext 8090/8093
     # endpoints that were briefly public are gone.

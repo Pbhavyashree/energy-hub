@@ -136,6 +136,11 @@ APP_PROPS=(
     -Ddb.url="$DB_URL"
     -Ddb.user="$DB_USER"
     -Ddb.password="$DB_PASSWORD"
+    # Alerting is off unless explicitly enabled, so a local run never
+    # messages anyone by accident while testing the poll.
+    -Dalert.negativeEnabled="${ALERT_NEGATIVE_ENABLED:-false}"
+    -Dalert.telegramToken="${TELEGRAM_TOKEN:-unset}"
+    -Dalert.telegramChatId="${TELEGRAM_CHAT_ID:-unset}"
 )
 
 echo "Starting Mule from $MULE_HOME without the Tanuki wrapper"

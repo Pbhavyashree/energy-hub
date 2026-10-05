@@ -148,3 +148,30 @@ GROUP BY source;
 
 COMMENT ON VIEW upstream_health IS
     'Per-source poll health, read by /health.';
+
+-- ---------------------------------------------------------------
+-- alert_sent
+-- ---------------------------------------------------------------
+--
+-- The poll runs hourly from 13:00 to 23:00, and every run sees the same
+-- published day. Without a guard, one day of negative prices would send
+-- eleven identical messages and the alert would be muted within a week.
+--
+-- The guard is the PRIMARY KEY, not application logic: INSERT ... ON
+-- CONFLICT DO NOTHING reports affectedRows = 1 only the first time, so
+-- "have we already told her about this day?" is answered by the database
+-- atomically. That also survives a restart, which an in-memory flag
+-- would not.
+
+CREATE TABLE IF NOT EXISTS alert_sent (
+    kind          text        NOT NULL,
+    delivery_day  date        NOT NULL,
+    bidding_zone  text        NOT NULL,
+    sent_at       timestamptz NOT NULL DEFAULT now(),
+    detail        text,
+
+    CONSTRAINT alert_sent_pk PRIMARY KEY (kind, delivery_day, bidding_zone)
+);
+
+COMMENT ON TABLE alert_sent IS
+    'One row per alert actually delivered. The primary key is the guard against repeats.';

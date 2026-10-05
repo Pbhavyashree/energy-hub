@@ -34,6 +34,15 @@
     </http:request-config>
 
     <!--
+      The one outbound call in this project that is not an upstream price
+      source. HTTPS on 443, so unlike the localhost system APIs the Host
+      header is correct by default.
+    -->
+    <http:request-config name="telegram">
+        <http:request-connection host="api.telegram.org" port="443" protocol="HTTPS"/>
+    </http:request-config>
+
+    <!--
       The store serves two purposes at once: the historical record, and
       the cache the flow falls back to when BOTH upstreams are
       unreachable. That fallback is what makes `source: CACHE` in the
@@ -317,6 +326,29 @@
                 </on-error-continue>
             </error-handler>
         </try>
+
+        <!--
+          Runs AFTER both routes, reading what they stored rather than
+          what either returned: the alert should reflect the best data
+          available for the day, whichever source supplied it.
+
+          Its own error boundary, for the same reason the routes have
+          theirs. A notification is the least important thing this flow
+          does, and it must never be able to affect the poll that feeds
+          it - the service is useful without alerts and useless without
+          prices.
+        -->
+        <try>
+            <flow-ref name="check-negative-prices"/>
+            <error-handler>
+                <on-error-continue logException="true">
+                    <logger level="WARN"
+                            message="#[%dw 2.0 output text/plain ---
+                                      'Negative-price check failed: '
+                                      ++ (error.description default '-')]"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
     </flow>
 
     <sub-flow name="poll-entsoe">
@@ -467,6 +499,152 @@
                           'Poll ' ++ (vars.pollSource default '?')
                           ++ ' status=' ++ (vars.pollStatus default '?')
                           ++ ' points=' ++ (sizeOf(vars.toPersist default []) as String)]"/>
+    </sub-flow>
+
+    <sub-flow name="check-negative-prices">
+        <!--
+          Reads the delivery day the poll just fetched (vars.periodStart /
+          periodEnd), applying the same finest-resolution-wins rule the
+          serving path uses. Resolutions are never mixed here either: a
+          count of intervals below zero would be meaningless if some were
+          quarter-hours and some whole hours.
+        -->
+        <db:select config-ref="priceStore">
+            <db:sql><![CDATA[
+                SELECT extract(epoch from starts_at) AS starts_epoch,
+                       extract(epoch from ends_at)   AS ends_epoch,
+                       resolution_minutes,
+                       source, price_per_kwh
+                FROM price_point
+                WHERE bidding_zone = :zone
+                  AND starts_at >= CAST(:periodStart AS timestamp) AT TIME ZONE 'UTC'
+                  AND starts_at <  CAST(:periodEnd   AS timestamp) AT TIME ZONE 'UTC'
+                ORDER BY starts_at
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[#[%dw 2.0
+                output application/java
+                fun pgTimestamp(d) =
+                    ((d as DateTime) >> 'UTC') as String {format: "yyyy-MM-dd HH:mm:ss"}
+                ---
+                {
+                    zone: vars.biddingZone,
+                    periodStart: pgTimestamp(vars.periodStart),
+                    periodEnd: pgTimestamp(vars.periodEnd)
+                }]]]></db:input-parameters>
+        </db:select>
+
+        <set-variable variableName="negative" value="#[%dw 2.0
+            import negativeSummary from modules::PriceLogic
+            output application/java
+            var rows = payload default []
+            var bySource = rows groupBy ((r) -> r.source)
+            var preferred =
+                if (!isEmpty(bySource['ENTSOE'] default [])) 'ENTSOE'
+                else if (!isEmpty(bySource['AWATTAR'] default [])) 'AWATTAR'
+                else null
+            var pts =
+                if (preferred == null) []
+                else (bySource[preferred] map {
+                    startsAt: ((($.starts_epoch as Number) * 1000) as DateTime {unit: 'milliseconds'}) >> 'UTC',
+                    endsAt: ((($.ends_epoch as Number) * 1000) as DateTime {unit: 'milliseconds'}) >> 'UTC',
+                    resolutionMinutes: $.resolution_minutes,
+                    pricePerKWh: $.price_per_kwh,
+                    source: $.source
+                })
+            ---
+            negativeSummary(pts)]"/>
+
+        <choice>
+            <when expression="#[vars.negative != null and p('alert.negativeEnabled') == 'true']">
+                <flow-ref name="claim-negative-alert"/>
+            </when>
+            <otherwise>
+                <logger level="INFO"
+                        message="#[%dw 2.0 output text/plain ---
+                                  'No negative prices for ' ++ (vars.biddingZone default '?')]"/>
+            </otherwise>
+        </choice>
+    </sub-flow>
+
+    <sub-flow name="claim-negative-alert">
+        <!--
+          The guard against repeat messages is the PRIMARY KEY, not a flag
+          in this flow. The poll runs eleven times a day and sees the same
+          published prices each time; ON CONFLICT DO NOTHING reports
+          affectedRows = 1 only on the first, so the database answers
+          "have we already said this?" atomically - and keeps answering it
+          correctly across a restart, which an in-memory flag would not.
+        -->
+        <db:insert config-ref="priceStore">
+            <db:sql><![CDATA[
+                INSERT INTO alert_sent (kind, delivery_day, bidding_zone, detail)
+                VALUES ('NEGATIVE_PRICES',
+                        CAST(:deliveryDay AS date),
+                        :zone,
+                        :detail)
+                ON CONFLICT (kind, delivery_day, bidding_zone) DO NOTHING
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[#[%dw 2.0
+                output application/java
+                ---
+                {
+                    deliveryDay: (vars.periodStart as DateTime) as String {format: 'yyyy-MM-dd'},
+                    zone: vars.biddingZone,
+                    detail: (vars.negative.intervals as String)
+                            ++ ' intervals, lowest '
+                            ++ (vars.negative.lowestPerKWh as String)
+                }]]]></db:input-parameters>
+        </db:insert>
+
+        <choice>
+            <when expression="#[(payload.affectedRows default 0) == 1]">
+                <flow-ref name="send-negative-alert"/>
+            </when>
+            <otherwise>
+                <logger level="INFO"
+                        message="#[%dw 2.0 output text/plain ---
+                                  'Negative-price alert already sent for this day']"/>
+            </otherwise>
+        </choice>
+    </sub-flow>
+
+    <sub-flow name="send-negative-alert">
+        <!--
+          Berlin wall-clock in the message, not UTC. This is the one place
+          in the process layer that formats for a human, and it is here
+          rather than in an experience API because the recipient is not a
+          client of this service - there is no request to shape a response
+          to.
+        -->
+        <set-payload value="#[%dw 2.0
+            output application/json
+            var BERLIN = 'Europe/Berlin'
+            fun clock(d) = ((d as DateTime) >> BERLIN) as String {format: 'HH:mm'}
+            fun cents(v) = round((v as Number) * 10000) / 100
+            var n = vars.negative
+            var day = ((n.startsAt as DateTime) >> BERLIN) as String {format: 'EEE d MMM'}
+            ---
+            {
+                chat_id: p('alert.telegramChatId'),
+                text: 'Negative electricity prices ' ++ day ++ newLine
+                      ++ clock(n.startsAt) ++ ' to ' ++ clock(n.endsAt)
+                      ++ ', ' ++ (n.intervals as String) ++ ' intervals below zero' ++ newLine
+                      ++ 'Lowest: ' ++ (cents(n.lowestPerKWh) as String) ++ ' ct/kWh' ++ newLine
+                      ++ 'Source: ' ++ (n.source default '?')
+                      ++ ' at ' ++ (n.resolutionMinutes as String) ++ ' min'
+            }]"/>
+
+        <http:request method="POST"
+                      config-ref="telegram"
+                      path="#['/bot' ++ p('alert.telegramToken') ++ '/sendMessage']"
+                      responseTimeout="10000">
+            <http:headers><![CDATA[#[{ "Content-Type": "application/json" }]]]></http:headers>
+        </http:request>
+
+        <logger level="INFO"
+                message="#[%dw 2.0 output text/plain ---
+                          'Negative-price alert sent: '
+                          ++ (vars.negative.intervals as String) ++ ' intervals']"/>
     </sub-flow>
 
     <!-- ============================================================

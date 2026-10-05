@@ -48,3 +48,14 @@ poll:
   timeZone: "Europe/Berlin"
   # Zones polled on a schedule. Others are still served on demand.
   biddingZone: "DE_LU"
+
+alert:
+  # Negative day-ahead prices are the event this project exists to
+  # notice: the wholesale price goes below zero often enough in Germany
+  # to matter, and it is exactly the thing a person would act on.
+  negativeEnabled: "true"
+  # Credentials come from the environment in a deployed instance, the
+  # same way the ENTSO-E token does. REPLACE_AT_RUNTIME keeps a working
+  # placeholder in the tree without a working credential in it.
+  telegramToken: "REPLACE_AT_RUNTIME"
+  telegramChatId: "REPLACE_AT_RUNTIME"

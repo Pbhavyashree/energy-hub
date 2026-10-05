@@ -194,3 +194,31 @@ fun failureDetail(err) = do {
     ---
     (kind ++ ' - ' ++ body)[0 to 480]
 }
+
+/**
+ * Summarise the intervals below zero in a series, or null if there are
+ * none.
+ *
+ * Reports the span from the FIRST to the LAST negative interval rather
+ * than a contiguous run. Negative periods are routinely broken by a
+ * single interval that creeps back above zero, and "between 02:00 and
+ * 05:00, 9 intervals" is both true and more useful to a person than
+ * three fragments they then have to reassemble.
+ *
+ * `intervals` is reported alongside the span precisely so the two
+ * together cannot mislead: a span of three hours with 9 quarter-hours
+ * below zero is visibly not solid.
+ */
+fun negativeSummary(points) = do {
+    var below = (points filter ((p) -> p.pricePerKWh < 0)) orderBy $.startsAt
+    ---
+    if (isEmpty(below)) null
+    else {
+        intervals:         sizeOf(below),
+        startsAt:          below[0].startsAt,
+        endsAt:            below[-1].endsAt,
+        lowestPerKWh:      ((below map $.pricePerKWh) orderBy $)[0],
+        resolutionMinutes: below[0].resolutionMinutes,
+        source:            below[0].source
+    }
+}
