@@ -1049,14 +1049,37 @@ been muted within a week.
 
 ## The failures recorded no reason at all
 
-All nine FAILED rows had an EMPTY `detail`. The cause:
+All nine FAILED rows had a NULL `detail`. The expression:
 
 ```dataweave
 (error.description default 'Unknown failure')[0 to 480]
 ```
 
-`default` substitutes only for null, NEVER for an empty string. An empty
-description sails straight through, and the column stores "".
+**The first diagnosis was wrong.** It looked like `default` failing to
+substitute for an empty string - true of `default`, but not the cause
+here. The fix shipped, two more failures occurred the next day, and the
+column was still empty.
+
+The actual cause is the range selector. **`s[0 to 480]` on a String
+SHORTER than the range returns null in DataWeave** - it does not return
+the whole string. Every failure message is well under 481 characters, so
+every one became null. The first fix replaced the `default` half and kept
+the slice, which is why it changed nothing.
+
+The evidence that settles it was in the table the whole time:
+
+```
+ status  | is_null | detail
+---------+---------+------------------------------------------
+ FAILED  | t       |
+ NO_DATA | f       | Upstream answered with no published data.
+```
+
+`NO_DATA` sets its detail as a plain literal with no slicing, and carries
+its text. Only the sliced rows are null. One query against the two paths
+distinguishes the two hypotheses, and it was available from the start -
+the first diagnosis was reasoning about the code instead of looking at the
+data.
 
 So the monitoring table - built specifically so /health would have
 something real to say - recorded nine failures and could not say what any
@@ -1064,11 +1087,12 @@ of them were. That is the same failure mode as the flat price curve, the
 shifted cache timestamps and the vanished aWATTar poll: output that is
 structurally correct and carries no information. Fourth time.
 
-The fix leads with the error TYPE, which is always populated and is the
-most diagnostic single field, and appends description or
-detailedDescription only when they contain text:
+The fix clips without lying about short strings, and leads with the error
+TYPE, which is always populated and is the most diagnostic single field:
 
 ```dataweave
+fun clip(s, n) = if (sizeOf(s) > n) s[0 to (n - 1)] else s
+
 fun failureDetail(err) = do {
     var kind = (err.errorType.namespace default '?')
                ++ ':' ++ (err.errorType.identifier default '?')
@@ -1079,13 +1103,20 @@ fun failureDetail(err) = do {
         else if (!isEmpty(detailed)) detailed
         else 'no description supplied by the connector'
     ---
-    (kind ++ ' - ' ++ body)[0 to 480]
+    clip(kind ++ ' - ' ++ body, 480)
 }
 ```
 
-**A failure record with an empty reason is not a failure record.** Worth
-testing the error path with a deliberately broken upstream rather than
-waiting three days to find out it logs nothing.
+There is now a test that asserts `s[0 to 480]` returns null for a short
+string, next to one asserting `clip` returns it whole. The bug is pinned
+by a test that fails if anyone reintroduces it - which the first fix
+would have been caught by, had it existed.
+
+**A failure record with an empty reason is not a failure record.** And a
+fix for one is not finished until a failure has actually been recorded
+with a reason in it - shipping the fix is not the same as verifying it.
+This one took two attempts and five days precisely because the first was
+declared done on the strength of the reasoning rather than the data.
 
 ## Still unknown
 

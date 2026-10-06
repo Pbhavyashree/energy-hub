@@ -165,22 +165,35 @@ fun seriesSummary(points) = {
 }
 
 /**
- * Build a poll_run detail string that is never empty.
+ * Clip a string to at most n characters.
  *
- * `default` substitutes only for null, NEVER for an empty string. So
+ * NOT `s[0 to n]`. A range selector on a String SHORTER than the range
+ * returns null in DataWeave - it does not return the whole string. So
  *
- *     error.description default 'Unknown failure'
+ *     (error.description default 'Unknown failure')[0 to 480]
  *
- * passes an empty description straight through, and that is how nine
- * ENTSO-E failures came to be recorded over one weekend with FAILED in
- * the status column and nothing whatsoever in detail. The table knew
- * something had broken and could not say what.
+ * yields null for every message under 481 characters, which is all of
+ * them. That is why eleven ENTSO-E failures were recorded over five days
+ * with FAILED in the status column and NULL in detail, and why the first
+ * attempt to fix it changed the wrong half of the expression and made no
+ * difference at all.
+ *
+ * The giveaway was in the data the whole time: NO_DATA rows, whose detail
+ * is a plain literal with no slicing, carried their text. Only the sliced
+ * ones were null.
+ */
+fun clip(s, n) = if (sizeOf(s) > n) s[0 to (n - 1)] else s
+
+/**
+ * Build a poll_run detail that is never null and never empty.
  *
  * The error TYPE is always populated and is the single most diagnostic
  * field, so it leads. Description and detailedDescription are appended
- * only when they actually carry text.
+ * only when they actually carry text - `default` substitutes for null but
+ * not for an empty string, so each is checked with isEmpty rather than
+ * trusted.
  *
- * A failure record with an empty reason is not a failure record.
+ * A failure record with no reason is not a failure record.
  */
 fun failureDetail(err) = do {
     var kind = (err.errorType.namespace default '?')
@@ -192,7 +205,7 @@ fun failureDetail(err) = do {
         else if (!isEmpty(detailed)) detailed
         else 'no description supplied by the connector'
     ---
-    (kind ++ ' - ' ++ body)[0 to 480]
+    clip(kind ++ ' - ' ++ body, 480)
 }
 
 /**

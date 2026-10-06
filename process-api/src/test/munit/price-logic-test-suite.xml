@@ -222,4 +222,73 @@
         </munit:validation>
     </munit:test>
 
+    <munit:test name="a-short-failure-message-survives-clipping"
+                description="The bug that made every failure record say nothing, asserted on directly.">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import clip from modules::PriceLogic
+                output application/java
+                var short = 'HTTP:CONNECTIVITY - Connection refused'
+                var long  = (1 to 600) map 'x' joinBy ''
+                ---
+                {
+                    shortIn:      sizeOf(short),
+                    shortOut:     clip(short, 480),
+                    longOut:      sizeOf(clip(long, 480)),
+                    rangeWouldBe: short[0 to 480]
+                }]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <!--
+              The whole point. A range selector on a String shorter than
+              the range returns null rather than the string, so this is
+              what the old code stored for every single failure.
+            -->
+            <munit-tools:assert-that expression="#[payload.rangeWouldBe == null]"
+                                     is="#[MunitTools::equalTo(true)]"
+                                     message="s[0 to 480] returns null for a short string - that was the bug."/>
+
+            <munit-tools:assert-that expression="#[payload.shortOut]"
+                                     is="#[MunitTools::equalTo('HTTP:CONNECTIVITY - Connection refused')]"
+                                     message="A short message must come back whole, not null."/>
+
+            <munit-tools:assert-that expression="#[payload.longOut]"
+                                     is="#[MunitTools::equalTo(480)]"
+                                     message="A long message is clipped to the limit."/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="a-failure-detail-is-never-null-even-with-no-description"
+                description="The error type alone is enough to act on; an empty description must not swallow it.">
+        <munit:execution>
+            <set-payload value="#[%dw 2.0
+                import failureDetail from modules::PriceLogic
+                output application/java
+                ---
+                {
+                    empty: failureDetail({
+                        errorType: { namespace: 'HTTP', identifier: 'CONNECTIVITY' },
+                        description: '',
+                        detailedDescription: ''
+                    }),
+                    described: failureDetail({
+                        errorType: { namespace: 'HTTP', identifier: 'TIMEOUT' },
+                        description: 'Timeout exceeded',
+                        detailedDescription: ''
+                    })
+                }]"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.empty != null and !isEmpty(payload.empty)]"
+                                     is="#[MunitTools::equalTo(true)]"
+                                     message="A failure with no description still has a type, and the type is the useful part."/>
+            <munit-tools:assert-that expression="#[payload.empty contains 'HTTP:CONNECTIVITY']"
+                                     is="#[MunitTools::equalTo(true)]"/>
+            <munit-tools:assert-that expression="#[payload.described contains 'Timeout exceeded']"
+                                     is="#[MunitTools::equalTo(true)]"/>
+        </munit:validation>
+    </munit:test>
+
 </mule>
