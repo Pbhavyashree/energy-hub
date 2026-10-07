@@ -263,8 +263,12 @@ a:focus-visible,.slot:focus-visible{outline:2px solid var(--below);outline-offse
         var bar = document.createElement("div");
         bar.className = "bar"; bar.style.left = l + "%"; bar.style.width = (r - l) + "%";
         var t = document.createElement("div");
-        t.className = "txt"; t.style.left = ((l + r) / 2) + "%";
-        t.textContent = "cheapest " + w.hours + "h";
+        t.className = "txt";
+        var mid = (l + r) / 2;
+        if (mid > 82){ t.style.left = "100%"; t.style.transform = "translateX(-100%)"; }
+        else if (mid < 18){ t.style.left = "0"; t.style.transform = "none"; }
+        else { t.style.left = mid + "%"; }
+        t.textContent = "best " + w.hours + "h from now";
         br.appendChild(bar); br.appendChild(t);
       }
     }
@@ -279,7 +283,7 @@ a:focus-visible,.slot:focus-visible{outline:2px solid var(--below);outline-offse
       wrap.appendChild(d1); wrap.appendChild(d2); f.appendChild(wrap);
     }
     if (w){
-      row(w.day === "today" ? "Cheapest " + w.hours + " hours" : "Cheapest " + w.hours + " hours, tomorrow",
+      row(w.day === "today" ? "Best " + w.hours + " hours from now" : "Best " + w.hours + " hours, tomorrow",
           w.from + "–" + w.to,
           ct(w.averageCents) + " ct" + gap(w.averageCents, d.averageCents));
     }
@@ -339,17 +343,31 @@ a:focus-visible,.slot:focus-visible{outline:2px solid var(--below);outline-offse
     $("when").innerHTML = '<span class="dot stale"></span>no data';
   }
 
+  var slowTimer = null;
   function load(){
-    fetch(TODAY, {headers:{Accept:"application/json"}})
+    var ctl = ("AbortController" in window) ? new AbortController() : null;
+    var killed = false;
+    var cutoff = setTimeout(function(){ killed = true; if (ctl) ctl.abort(); }, 35000);
+    clearTimeout(slowTimer);
+    slowTimer = setTimeout(function(){
+      if (!state) $("boot").innerHTML =
+        '<p class="note">Still fetching. The upstream market data can be slow just after an auction clears.</p>';
+    }, 6000);
+
+    fetch(TODAY, {headers:{Accept:"application/json"}, signal: ctl ? ctl.signal : undefined})
       .then(function(r){
+        clearTimeout(cutoff); clearTimeout(slowTimer);
         if (!r.ok) throw new Error("The API answered " + r.status + ".");
         return r.json();
       })
       .then(draw)
       .catch(function(e){
+        clearTimeout(cutoff); clearTimeout(slowTimer);
         if (state) { $("when").innerHTML = '<span class="dot stale"></span>stale'; return; }
-        fail("Can't reach the price API",
-             e.message + " The raw endpoint is at /api/exp/home/v1/today if you want to check it directly.");
+        fail(killed ? "The price API didn't answer in time" : "Can't reach the price API",
+             (killed ? "It stayed open for 35 seconds without responding."
+                     : e.message) +
+             " Retrying every minute. The raw endpoint is /api/exp/home/v1/today if you want to check it directly.");
       });
   }
 
