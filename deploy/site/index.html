@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>energy-hub — German electricity prices, by the quarter hour</title>
+<meta name="description" content="Live day-ahead electricity prices for Germany, banded by rank within the day. An API-led integration layer built on MuleSoft.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="energy-hub — German electricity prices, by the quarter hour">
+<meta property="og:description" content="Live day-ahead electricity prices for Germany, banded by rank within the day. An API-led integration layer built on MuleSoft.">
+<meta property="og:url" content="https://energy-hub.duckdns.org/">
+<meta property="og:image" content="https://energy-hub.duckdns.org/og.png">
+<meta name="twitter:card" content="summary_large_image">
+
+<style>
+:root{
+  --ground:#E6EAEE; --panel:#FAFBFC; --line:#CFD7DE;
+  --ink:#10181F; --ink-soft:#56656F; --ink-faint:#8696A2;
+  --cheap:#1B7F5A; --normal:#7C8B98; --expensive:#B23A2B; --below:#3A4FB8;
+  --track:180px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --ground:#12181D; --panel:#192128; --line:#2C3842;
+    --ink:#EAF0F4; --ink-soft:#9DAEBA; --ink-faint:#6B7E8C;
+    --cheap:#3DBA86; --normal:#8699A6; --expensive:#E4705A; --below:#7589EE;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--ground); color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:16px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  padding:clamp(16px,4vw,48px);
+}
+main{max-width:980px;margin:0 auto}
+
+/* ---- masthead ---- */
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;
+  padding-bottom:14px;border-bottom:1px solid var(--line)}
+.wordmark{font-size:1rem;font-weight:650;letter-spacing:-.01em}
+.when{font-size:.8125rem;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--cheap);
+  margin-right:6px;vertical-align:1px}
+.dot.stale{background:var(--ink-faint)}
+
+/* ---- the reading ---- */
+.reading{padding:clamp(28px,5vw,44px) 0 clamp(20px,3vw,28px)}
+.price{font-size:clamp(3.25rem,11vw,5.5rem);font-weight:620;letter-spacing:-.035em;
+  line-height:.95;font-variant-numeric:tabular-nums;margin:0;transition:color .12s}
+.price .unit{font-size:.3em;font-weight:500;letter-spacing:0;color:var(--ink-soft);margin-left:.35em}
+.moment{margin:10px 0 0;font-size:1.0625rem;color:var(--ink-soft);max-width:60ch}
+.moment b{color:var(--ink);font-weight:600}
+.flag{display:inline-block;margin-top:12px;font-size:.8125rem;color:var(--below);
+  border:1px solid currentColor;border-radius:3px;padding:2px 7px}
+
+/* ---- the day ---- */
+.strip{margin-top:clamp(12px,2vw,20px)}
+.track{position:relative;height:var(--track);display:flex;gap:1px;align-items:stretch;
+  background:var(--panel);border:1px solid var(--line);border-radius:2px;
+  padding:0;overflow:hidden;touch-action:pan-y}
+.zero{position:absolute;left:0;right:0;height:0;border-top:1px dashed var(--ink-faint);pointer-events:none}
+.zero b{position:absolute;left:4px;top:-1.15em;font-size:.6875rem;font-weight:400;color:var(--ink-faint);
+  background:var(--panel);padding:0 3px}
+.nowline{position:absolute;top:0;bottom:0;width:1px;background:var(--ink);opacity:.5;pointer-events:none}
+.nowline::before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);
+  border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid var(--ink)}
+.slot{position:relative;flex:1 1 0;min-width:0;cursor:crosshair}
+.slot i{position:absolute;left:0;right:0;display:block;background:var(--normal);
+  transform-origin:center;transition:opacity .12s}
+.slot[data-band=CHEAP] i{background:var(--cheap)}
+.slot[data-band=EXPENSIVE] i{background:var(--expensive)}
+.slot[data-neg="1"] i{background:var(--below)}
+.track:hover .slot i{opacity:.4}
+.slot:hover i,.slot.on i{opacity:1}
+
+.axis{position:relative;height:1.25rem;margin-top:5px;font-size:.75rem;color:var(--ink-faint);
+  font-variant-numeric:tabular-nums}
+.axis span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.axis span:first-child{transform:none}
+.axis span:last-child{transform:translateX(-100%)}
+.bracket{position:relative;height:1.5rem;margin-top:2px}
+.bracket .bar{position:absolute;top:0;height:5px;border:1px solid currentColor;
+  border-top:none;border-radius:0 0 3px 3px}
+.bracket .txt{position:absolute;top:6px;font-size:.75rem;color:inherit;
+  transform:translateX(-50%);white-space:nowrap}
+
+/* ---- facts ---- */
+.facts{margin-top:clamp(24px,4vw,36px);border-top:1px solid var(--line)}
+.fact{display:flex;gap:16px;align-items:baseline;justify-content:space-between;
+  padding:11px 0;border-bottom:1px solid var(--line);font-size:.9375rem}
+.fact dt{color:var(--ink-soft);margin:0}
+.fact dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.fact .sub{color:var(--ink-faint);font-size:.8125rem;margin-left:8px}
+
+/* ---- footer ---- */
+footer{margin-top:clamp(28px,5vw,44px);font-size:.875rem;color:var(--ink-soft);
+  display:flex;flex-wrap:wrap;gap:8px 22px}
+footer a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line);
+  padding-bottom:1px}
+footer a:hover{border-bottom-color:currentColor}
+a:focus-visible,.slot:focus-visible{outline:2px solid var(--below);outline-offset:2px}
+
+.note{font-size:.875rem;color:var(--ink-soft);margin:0}
+.fail{padding:22px;background:var(--panel);border:1px solid var(--line);border-radius:3px}
+.fail h2{margin:0 0 6px;font-size:1rem}
+.hidden{display:none}
+
+@media (max-width:560px){
+  :root{--track:140px}
+  .fact{font-size:.875rem}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+}
+@keyframes rise{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+</style>
+</head>
+<body>
+<main>
+
+  <div class="top">
+    <span class="wordmark">energy-hub</span>
+    <span class="when" id="when"></span>
+  </div>
+
+  <section id="live" class="hidden">
+    <div class="reading">
+      <p class="price" id="price"><span id="priceNum">—</span><span class="unit">ct/kWh</span></p>
+      <p class="moment" id="moment"></p>
+      <span class="flag hidden" id="flag">Estimated — hourly fallback feed</span>
+    </div>
+
+    <div class="strip">
+      <div class="track" id="track" role="img" aria-label="Loading today's prices"></div>
+      <div class="axis" id="axis"></div>
+      <div class="bracket" id="bracket"></div>
+    </div>
+
+    <dl class="facts" id="facts"></dl>
+  </section>
+
+  <section id="fail" class="fail hidden">
+    <h2 id="failTitle">Can't reach the price API</h2>
+    <p class="note" id="failBody"></p>
+  </section>
+
+  <section id="boot">
+    <p class="note">Fetching today's prices…</p>
+  </section>
+
+  <footer>
+    <span>Day-ahead prices for Germany/Luxembourg, from ENTSO-E and aWATTar.</span>
+    <a href="/api/exp/home/v1/today">API</a>
+    <a href="https://github.com/Pbhavyashree/energy-hub">Source</a>
+  </footer>
+
+</main>
+
+<script>
+(function(){
+  "use strict";
+  var TODAY = "/api/exp/home/v1/today";
+  var $ = function(id){ return document.getElementById(id); };
+  var state = null, pinned = null;
+
+  function ct(n){ return (n === null || n === undefined) ? "—" : n.toFixed(2); }
+  // A percentage below the day mean is meaningless once that mean nears zero:
+  // a 1.68 ct day against a -4.02 ct window reads as "339% under average".
+  // An absolute difference in cents says the same thing and cannot explode.
+  function gap(windowCents, dayCents){
+    if (windowCents === null || dayCents === null) return "";
+    var d = dayCents - windowCents;
+    return d > 0.005 ? ", " + d.toFixed(2) + " ct below average" : "";
+  }
+  function bandColor(b, neg){
+    if (neg) return "var(--below)";
+    return b === "CHEAP" ? "var(--cheap)" : b === "EXPENSIVE" ? "var(--expensive)" : "var(--ink)";
+  }
+
+  function draw(d){
+    state = d;
+    var slots = d.slots || [];
+    if (!slots.length){ return fail("No prices published yet",
+      "Tomorrow's auction clears around 12:45 CET. Until then there is nothing to show for that day."); }
+
+    $("boot").classList.add("hidden");
+    $("fail").classList.add("hidden");
+    $("live").classList.remove("hidden");
+
+    // --- scale. Zero is a real line, so negative prices read as below zero. ---
+    var vals = slots.map(function(s){ return s.cents; });
+    var hi = Math.max.apply(null, vals), lo = Math.min.apply(null, vals);
+    var top = Math.max(hi, 0), bot = Math.min(lo, 0);
+    var span = (top - bot) || 1;
+    var zeroPct = (top / span) * 100;
+
+    var track = $("track");
+    track.innerHTML = "";
+    var zl = document.createElement("div");
+    zl.className = "zero"; zl.style.top = zeroPct + "%";
+    if (bot < 0){ zl.innerHTML = "<b>0</b>"; track.appendChild(zl); }
+
+    var nowIdx = -1, slotEls = [];
+    slots.forEach(function(s, i){
+      var neg = s.cents < 0;
+      if (d.now && s.from === d.now.at) nowIdx = i;
+      var el = document.createElement("div");
+      el.className = "slot";
+      el.setAttribute("data-band", s.band);
+      el.setAttribute("data-neg", neg ? "1" : "0");
+      el.setAttribute("data-i", i);
+      var bar = document.createElement("i");
+      var h = (Math.abs(s.cents) / span) * 100;
+      if (neg){ bar.style.top = zeroPct + "%"; }
+      else { bar.style.top = (zeroPct - h) + "%"; }
+      bar.style.height = Math.max(h, 0.6) + "%";
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches){
+        bar.style.animation = "rise .5s cubic-bezier(.2,.7,.3,1) both";
+        bar.style.animationDelay = (i * 4) + "ms";
+        bar.style.transformOrigin = neg ? "top" : "bottom";
+      }
+      el.appendChild(bar);
+      track.appendChild(el);
+      slotEls.push(el);
+    });
+    if (nowIdx >= 0){
+      slotEls[nowIdx].classList.add("on");
+      var nl = document.createElement("div");
+      nl.className = "nowline";
+      nl.style.left = ((nowIdx + 0.5) / slots.length * 100) + "%";
+      track.appendChild(nl);
+    }
+
+    var loI = vals.indexOf(lo), hiI = vals.indexOf(hi);
+    track.setAttribute("aria-label",
+      "Electricity price for each quarter hour of " + (d.day || "today") +
+      ". Lowest " + ct(lo) + " cents at " + slots[loI].from +
+      ", highest " + ct(hi) + " cents at " + slots[hiI].from +
+      ", day average " + ct(d.averageCents) + " cents per kilowatt hour.");
+
+    // --- axis ---
+    var ax = $("axis"); ax.innerHTML = "";
+    [0, 6, 12, 18, 24].forEach(function(h){
+      var sp = document.createElement("span");
+      sp.style.left = (h / 24 * 100) + "%";
+      sp.textContent = (h === 24 ? "24" : String(h).padStart(2, "0")) + ":00";
+      ax.appendChild(sp);
+    });
+
+    // --- cheapest-window bracket, only when the window is today ---
+    var br = $("bracket"); br.innerHTML = "";
+    var w = d.bestTime;
+    if (w && w.day === "today"){
+      var a = slots.findIndex(function(s){ return s.from === w.from; });
+      var b = slots.findIndex(function(s){ return s.to === w.to; });
+      if (a >= 0 && b >= a){
+        var l = a / slots.length * 100, r = (b + 1) / slots.length * 100;
+        br.style.color = (w.averageCents < 0) ? "var(--below)" : "var(--cheap)";
+        var bar = document.createElement("div");
+        bar.className = "bar"; bar.style.left = l + "%"; bar.style.width = (r - l) + "%";
+        var t = document.createElement("div");
+        t.className = "txt"; t.style.left = ((l + r) / 2) + "%";
+        t.textContent = "cheapest " + w.hours + "h";
+        br.appendChild(bar); br.appendChild(t);
+      }
+    }
+
+    // --- facts ---
+    var f = $("facts"); f.innerHTML = "";
+    function row(k, v, sub){
+      var d1 = document.createElement("dt"); d1.textContent = k;
+      var d2 = document.createElement("dd"); d2.textContent = v;
+      if (sub){ var s = document.createElement("span"); s.className = "sub"; s.textContent = sub; d2.appendChild(s); }
+      var wrap = document.createElement("div"); wrap.className = "fact";
+      wrap.appendChild(d1); wrap.appendChild(d2); f.appendChild(wrap);
+    }
+    if (w){
+      row(w.day === "today" ? "Cheapest " + w.hours + " hours" : "Cheapest " + w.hours + " hours, tomorrow",
+          w.from + "–" + w.to,
+          ct(w.averageCents) + " ct" + gap(w.averageCents, d.averageCents));
+    }
+    row("Day average", ct(d.averageCents) + " ct");
+    row("Lowest interval", ct(lo) + " ct", "at " + slots[loI].from);
+    row("Highest interval", ct(hi) + " ct", "at " + slots[hiI].from);
+    row("Resolution", slots.length === 96 ? "15 minutes" : Math.round(1440 / slots.length) + " minutes",
+        slots.length + " intervals");
+
+    $("flag").classList.toggle("hidden", !d.estimated);
+    show(null);
+    $("when").innerHTML = '<span class="dot"></span>' + (d.day || "") + " · updated " + stamp();
+  }
+
+  function show(i){
+    var d = state; if (!d) return;
+    var s = (i === null || i === undefined) ? null : d.slots[i];
+    var num = $("priceNum"), mo = $("moment"), px = $("price");
+    if (s){
+      num.textContent = ct(s.cents);
+      px.style.color = bandColor(s.band, s.cents < 0);
+      mo.innerHTML = "<b>" + s.from + "–" + s.to + "</b> · " +
+        (s.cents < 0 ? "below zero" : s.band.toLowerCase()) + " for today";
+    } else if (d.now){
+      num.textContent = ct(d.now.cents);
+      px.style.color = bandColor(d.now.band, d.now.cents < 0);
+      mo.innerHTML = "<b>Now, " + d.now.at + ".</b> " + d.now.verdict;
+    } else {
+      num.textContent = "—";
+      px.style.color = "var(--ink)";
+      mo.textContent = "Outside today's published range.";
+    }
+  }
+
+  $("track").addEventListener("mouseover", function(e){
+    var el = e.target.closest(".slot"); if (!el) return;
+    pinned = +el.getAttribute("data-i"); show(pinned);
+  });
+  $("track").addEventListener("mouseleave", function(){ pinned = null; show(null); });
+  $("track").addEventListener("touchstart", function(e){
+    var t = e.touches[0];
+    var el = document.elementFromPoint(t.clientX, t.clientY);
+    el = el && el.closest(".slot"); if (!el) return;
+    show(+el.getAttribute("data-i"));
+  }, {passive:true});
+
+  function stamp(){
+    return new Date().toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit"});
+  }
+
+  function fail(title, body){
+    $("boot").classList.add("hidden");
+    $("live").classList.add("hidden");
+    $("fail").classList.remove("hidden");
+    $("failTitle").textContent = title;
+    $("failBody").textContent = body;
+    $("when").innerHTML = '<span class="dot stale"></span>no data';
+  }
+
+  function load(){
+    fetch(TODAY, {headers:{Accept:"application/json"}})
+      .then(function(r){
+        if (!r.ok) throw new Error("The API answered " + r.status + ".");
+        return r.json();
+      })
+      .then(draw)
+      .catch(function(e){
+        if (state) { $("when").innerHTML = '<span class="dot stale"></span>stale'; return; }
+        fail("Can't reach the price API",
+             e.message + " The raw endpoint is at /api/exp/home/v1/today if you want to check it directly.");
+      });
+  }
+
+  load();
+  setInterval(load, 60000);
+})();
+</script>
+</body>
+</html>
