@@ -79,6 +79,7 @@ services:
       DOMAIN: ${DOMAIN:?DOMAIN must be set in deploy/.env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./site:/srv:ro
       # Certificates live here. Without a named volume Caddy re-requests a
       # certificate on every recreate and will hit Let's Encrypt rate
       # limits (5 per domain per week) surprisingly fast.
