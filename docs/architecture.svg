@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" font-family="Liberation Sans, DejaVu Sans, Arial, sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7A8B9A"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="900" fill="#F7F8FA"/>
+
+  <!-- ===== header ===== -->
+  <text x="60" y="62" font-size="38" font-weight="bold" fill="#1B2733">energy-hub</text>
+  <text x="60" y="96" font-size="19" fill="#5A6B7B">API-led integration over German day-ahead electricity prices &#183; MuleSoft 4.6 Community Edition</text>
+  <text x="1540" y="62" font-size="17" text-anchor="end" fill="#5A6B7B">energy-hub.duckdns.org</text>
+  <text x="1540" y="92" font-size="17" text-anchor="end" fill="#5A6B7B">live &#183; free-tier ARM &#183; Frankfurt</text>
+  <line x1="60" y1="122" x2="1540" y2="122" stroke="#D5DDE5" stroke-width="2"/>
+
+  <!-- ===== layer labels ===== -->
+  <g font-size="13" font-weight="bold" fill="#7A8B9A" letter-spacing="2" text-anchor="middle">
+    <text x="205" y="160">UPSTREAM</text>
+    <text x="555" y="160">SYSTEM APIs</text>
+    <text x="940" y="160">PROCESS API</text>
+    <text x="1360" y="160">EXPERIENCE API</text>
+  </g>
+  <g font-size="13" fill="#9AAAB8" text-anchor="middle" font-style="italic">
+    <text x="205" y="181">two feeds, one auction</text>
+    <text x="555" y="181">&#8594; one canonical model</text>
+    <text x="940" y="181">orchestration &amp; state</text>
+    <text x="1360" y="181">one consumer's vocabulary</text>
+  </g>
+
+  <!-- ===== col 1 : upstreams ===== -->
+  <g>
+    <rect x="60" y="200" width="290" height="140" rx="10" fill="#EDEFF2" stroke="#8695A5" stroke-width="2"/>
+    <text x="82" y="241" font-size="23" font-weight="bold" fill="#1B2733">ENTSO-E</text>
+    <text x="82" y="270" font-size="15" fill="#5A6B7B">Transparency Platform</text>
+    <text x="82" y="305" font-size="15" fill="#46566A">XML &#183; 15-min &#183; token</text>
+    <text x="82" y="327" font-size="15" fill="#46566A">primary source</text>
+
+    <rect x="60" y="380" width="290" height="140" rx="10" fill="#EDEFF2" stroke="#8695A5" stroke-width="2"/>
+    <text x="82" y="421" font-size="23" font-weight="bold" fill="#1B2733">aWATTar</text>
+    <text x="82" y="450" font-size="15" fill="#5A6B7B">Market data API</text>
+    <text x="82" y="485" font-size="15" fill="#46566A">JSON &#183; hourly &#183; open</text>
+    <text x="82" y="507" font-size="15" fill="#46566A">fallback &amp; cross-check</text>
+  </g>
+
+  <!-- ===== col 2 : system apis ===== -->
+  <g>
+    <rect x="410" y="200" width="290" height="140" rx="10" fill="#E8F1F9" stroke="#2B6CB0" stroke-width="2"/>
+    <text x="432" y="238" font-size="20" font-weight="bold" fill="#1A4E8A">sys-api-entsoe</text>
+    <text x="432" y="271" font-size="15" fill="#46566A">position &#8594; instant</text>
+    <text x="432" y="295" font-size="15" fill="#46566A">A03 hold-forward</text>
+    <text x="432" y="319" font-size="15" fill="#46566A">picks the right sequence</text>
+
+    <rect x="410" y="380" width="290" height="140" rx="10" fill="#E8F1F9" stroke="#2B6CB0" stroke-width="2"/>
+    <text x="432" y="418" font-size="20" font-weight="bold" fill="#1A4E8A">sys-api-awattar</text>
+    <text x="432" y="451" font-size="15" fill="#46566A">epoch ms &#8594; ISO 8601</text>
+    <text x="432" y="475" font-size="15" fill="#46566A">&#8364;/MWh &#8594; &#8364;/kWh</text>
+    <text x="432" y="499" font-size="15" fill="#46566A">holds its own credentials</text>
+  </g>
+
+  <!-- ===== col 3 : process api ===== -->
+  <g>
+    <rect x="760" y="200" width="360" height="320" rx="10" fill="#E9F4EC" stroke="#2F855A" stroke-width="2"/>
+    <text x="784" y="242" font-size="23" font-weight="bold" fill="#1F5F40">process-api</text>
+    <line x1="784" y1="258" x2="1096" y2="258" stroke="#A8CDB6" stroke-width="1.5"/>
+    <g font-size="16" fill="#35485C">
+      <text x="784" y="292">&#8226;  never merges across resolutions</text>
+      <text x="784" y="328">&#8226;  cheapest window, in intervals</text>
+      <text x="784" y="364">&#8226;  cross-source check per request</text>
+      <text x="784" y="400">&#8226;  hourly poll, 13:00&#8211;23:00 Berlin</text>
+      <text x="784" y="436">&#8226;  CACHE fallback when both fail</text>
+      <text x="784" y="472">&#8226;  every attempt recorded</text>
+    </g>
+  </g>
+
+  <!-- ===== col 4 : experience api ===== -->
+  <g>
+    <rect x="1180" y="200" width="360" height="320" rx="10" fill="#FDF0E7" stroke="#C05621" stroke-width="2"/>
+    <text x="1204" y="242" font-size="23" font-weight="bold" fill="#9C4418">exp-api-home</text>
+    <line x1="1204" y1="258" x2="1516" y2="258" stroke="#EFC4A5" stroke-width="1.5"/>
+    <g font-size="16" fill="#35485C" font-family="DejaVu Sans Mono, Liberation Mono, monospace">
+      <text x="1204" y="294">GET /now</text>
+      <text x="1204" y="324">GET /today</text>
+      <text x="1204" y="354">GET /best-time?hours=2</text>
+    </g>
+    <line x1="1204" y1="378" x2="1516" y2="378" stroke="#EFC4A5" stroke-width="1.5"/>
+    <g font-size="15" fill="#5A6B7B">
+      <text x="1204" y="408">cents per kWh &#183; Berlin local time</text>
+      <text x="1204" y="434">band = rank within today's prices,</text>
+      <text x="1204" y="456">so negative prices cannot invert it</text>
+      <text x="1204" y="490" fill="#9C4418">estimated: true when degraded</text>
+    </g>
+  </g>
+
+  <!-- ===== arrows ===== -->
+  <g stroke="#7A8B9A" stroke-width="2.5" fill="none" marker-end="url(#ar)">
+    <line x1="354" y1="270" x2="402" y2="270"/>
+    <line x1="354" y1="450" x2="402" y2="450"/>
+    <line x1="704" y1="270" x2="752" y2="270"/>
+    <line x1="704" y1="450" x2="752" y2="450"/>
+    <line x1="1124" y1="360" x2="1172" y2="360"/>
+  </g>
+
+  <!-- process <-> postgres -->
+  <g stroke="#7A8B9A" stroke-width="2.5" fill="none" marker-end="url(#ar)" marker-start="url(#ar)">
+    <line x1="880" y1="524" x2="880" y2="581"/>
+  </g>
+  <!-- process -> telegram (elbow) -->
+  <path d="M 1050 524 L 1050 552 L 1360 552 L 1360 581" stroke="#7A8B9A" stroke-width="2.5" fill="none" marker-end="url(#ar)"/>
+
+  <!-- ===== storage + alert ===== -->
+  <rect x="760" y="585" width="360" height="96" rx="10" fill="#F3EDF9" stroke="#6B46C1" stroke-width="2"/>
+  <text x="784" y="620" font-size="20" font-weight="bold" fill="#54359B">PostgreSQL</text>
+  <text x="784" y="648" font-size="15" fill="#46566A">prices &#183; poll_run &#183; price_revision</text>
+  <text x="784" y="670" font-size="15" fill="#46566A">revisions written by a DB trigger</text>
+
+  <rect x="1180" y="585" width="360" height="96" rx="10" fill="#FFF8E1" stroke="#B7791F" stroke-width="2"/>
+  <text x="1204" y="620" font-size="20" font-weight="bold" fill="#8A5A12">Telegram alert</text>
+  <text x="1204" y="648" font-size="15" fill="#46566A">fires when tomorrow goes negative</text>
+  <text x="1204" y="670" font-size="15" fill="#46566A">once per day, guarded in the DB</text>
+
+  <!-- ===== footer ===== -->
+  <rect x="60" y="740" width="1480" height="78" rx="10" fill="#ECF0F4" stroke="#D5DDE5" stroke-width="1.5"/>
+  <text x="800" y="776" font-size="17" text-anchor="middle" fill="#35485C">Docker Compose &#183; Caddy with automatic TLS &#183; Oracle Cloud Always Free (Ampere ARM) &#183; GitHub Actions CI</text>
+  <text x="800" y="802" font-size="17" text-anchor="middle" fill="#35485C">25 MUnit tests &#183; RAML contracts enforced at deploy time &#183; runs without the Tanuki native launcher</text>
+
+  <text x="800" y="862" font-size="16" text-anchor="middle" fill="#7A8B9A">github.com/Pbhavyashree/energy-hub</text>
+</svg>

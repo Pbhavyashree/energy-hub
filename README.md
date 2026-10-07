@@ -8,7 +8,16 @@ MuleSoft and running on the Mule runtime Community Edition.
 Two independent upstreams, one canonical model, four applications, deployed and
 polling on a schedule.
 
+![Architecture](docs/architecture.svg)
+
 ### Live
+
+**[energy-hub.duckdns.org](https://energy-hub.duckdns.org)** — today's prices by
+the quarter hour, banded, with the best window still ahead of you.
+
+The page is static and calls the experience API from the browser. The API keeps
+returning JSON; an API that serves HTML to please a link preview stops being an
+API.
 
 ```bash
 curl https://energy-hub.duckdns.org/api/exp/home/v1/now
@@ -30,6 +39,7 @@ curl https://energy-hub.duckdns.org/api/exp/home/v1/now
 | `/api/exp/home/v1/today` | The whole day in local time, every interval banded |
 | `/api/exp/home/v1/best-time?hours=2` | When to run an appliance |
 | `/api/prc/energy/v1/health` | When each upstream last actually succeeded |
+| `/` | All of the above, for a person rather than a program |
 
 Running on an Oracle Cloud Always Free ARM instance in Frankfurt. Total hosting
 cost: nothing.
@@ -44,8 +54,9 @@ cost: nothing.
 | **ENTSO-E system API** | Complete — built against real captured responses, 6 MUnit tests |
 | **Process API** | Complete — orchestration, cheapest-window, cross-source check, persistence, scheduled poll |
 | **Experience API** | Complete — household view, 6 MUnit tests |
+| **Front end** | Live — static page at the domain root, calls the experience API |
+| **Negative-price alerting** | Live — Telegram, idempotent per day and zone |
 | **Deployment** | Live — Docker Compose, TLS, scheduled polling |
-| Negative-price alerting | Planned |
 
 ---
 
@@ -277,6 +288,11 @@ instead of 9, and any alert built on that column would have fired every morning.
 a database trigger rather than application code, so no future write path can
 forget it.
 
+Negative prices raise a Telegram alert. The guard against sending it twice is a
+primary key on `(kind, delivery_day, bidding_zone)` in `alert_sent`: the insert
+is attempted first and the message is sent only when it affected a row, so two
+overlapping polls cannot both decide they were first.
+
 When both upstreams fail, the process layer serves from the stored data with
 `source: CACHE` and `degraded: true` — verified end to end by undeploying both
 system APIs.
@@ -296,11 +312,18 @@ because fixture and code shared the same wrong assumptions. The one synthetic
 fixture that remains — a negative-mean day — is labelled as such and exists to
 test a *rule* against a condition the real data cannot express.
 
-**Tests assert on values, not just shape.** Four separate bugs on this project
+**Tests assert on values, not just shape.** Five separate bugs on this project
 produced well-formed, plausible, wrong output: a flat price curve from a consumed
 stream, cached timestamps shifted by two hours, a whole upstream that silently
-stopped being polled, and nine failure records with no failure reason.
-Structural assertions passed every time.
+stopped being polled, eleven failure records with no failure reason, and the fix
+for that last one — which corrected the wrong half of the expression, changed
+nothing, and was declared done on reasoning rather than on data. Structural
+assertions passed every time.
+
+The fifth is the instructive one. What eventually found it was a query rather
+than an argument: rows written by the code path with no string slicing carried
+their text, and only the sliced rows were null. The discriminating evidence had
+been sitting in the table for five days.
 
 **Errors carry a correlation ID**, and upstream failures are distinguished: 502
 for unreachable, 504 for too slow, 404 for "the upstream answered and had
