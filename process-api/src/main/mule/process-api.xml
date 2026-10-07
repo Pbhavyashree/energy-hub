@@ -355,7 +355,39 @@
         <set-variable variableName="pollSource" value="ENTSOE"/>
         <set-variable variableName="pollStartedAt" value="#[now() >> 'UTC']"/>
         <try>
-            <flow-ref name="fetch-entsoe"/>
+            <!--
+              RETRIED HERE AND NOWHERE ELSE.
+
+              Once the detail column started recording reasons, every
+              ENTSO-E failure turned out to be the same thing: a timeout.
+              HTTP:TIMEOUT when this layer's 25s budget expired first,
+              HTTP:GATEWAY_TIMEOUT (504) when the system API's own 20s
+              budget expired first. Two symptoms, one cause - and nothing
+              actually broken. ENTSO-E is simply slow.
+
+              The clustering says why. The failures land at 13:00 and
+              16:00 Berlin, and 13:00 is the first poll after the auction
+              clears, when every consumer in Europe asks at once. That is
+              load, not a fault, and waiting is the correct response to it.
+
+              Why not in the system API, next to the slow dependency: three
+              attempts at its 20s timeout is 60s, which blows this layer's
+              25s budget, so the retries would be cut off mid-flight. The
+              two timeouts would have to be re-tuned against each other for
+              no gain.
+
+              Why not in the serving path: `fetch-entsoe` is shared with
+              collect-series, and a person waiting on /prices must not wait
+              75 seconds for an answer they would rather have degraded and
+              immediately. The fallback already covers them.
+
+              Retries belong where latency is cheap. An hourly poll can
+              afford two minutes; an HTTP caller cannot.
+            -->
+            <until-successful maxRetries="${poll.retries}"
+                              millisBetweenRetries="${poll.retryDelayMs}">
+                <flow-ref name="fetch-entsoe"/>
+            </until-successful>
             <set-variable variableName="toPersist" value="#[payload default []]"/>
             <choice>
                 <when expression="#[isEmpty(vars.toPersist)]">

@@ -48,6 +48,15 @@ poll:
   timeZone: "Europe/Berlin"
   # Zones polled on a schedule. Others are still served on demand.
   biddingZone: "DE_LU"
+  # ENTSO-E is slow rather than broken, especially at 13:00 Berlin when
+  # every consumer in Europe asks for the freshly cleared auction at once.
+  # Two extra attempts with a long gap, which is affordable here and not
+  # on the serving path - see the comment in poll-entsoe.
+  #
+  # Worst case is roughly 25s + 15s + 25s + 15s + 25s, under two minutes,
+  # against an hourly schedule.
+  retries: "2"
+  retryDelayMs: "15000"
 
 alert:
   # Negative day-ahead prices are the event this project exists to
